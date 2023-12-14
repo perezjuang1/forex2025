@@ -289,11 +289,11 @@ def Update(pricedata):
     df.index = df['row_count'].values
 
     # HMA fast and slow calculation
-    df['ema'] = df['bidclose'].ewm(span=10).mean()
-    df['ema_slow'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res1'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res2'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res3'] = df['bidclose'].ewm(span=100).mean()
+    df['ema'] = df['bidclose'].ewm(span=50).mean()
+    df['ema_slow'] = df['bidclose'].ewm(span=50).mean()
+    df['ema_res1'] = df['bidclose'].ewm(span=50).mean()
+    df['ema_res2'] = df['bidclose'].ewm(span=50).mean()
+    df['ema_res3'] = df['bidclose'].ewm(span=50).mean()
 
     df['rsi'] = rsi(df['bidclose'], 15)
     df['sto_k'] = sto.percent_k(df['bidclose'], 10)
@@ -311,8 +311,8 @@ def Update(pricedata):
 
     df['value1'] = 1
     # Find local peaks
-    df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=30)[0]]['value1']
-    df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=30)[0]]['value1']
+    df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=10)[0]]['value1']
+    df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=10)[0]]['value1']
 
     #Find Tendencies Pics Min
     trend = "NOT FINDED"
@@ -392,8 +392,8 @@ def Update(pricedata):
              if ( df.loc[index, 'peaks_max'] == 1 
                  #and df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
                  #and df.loc[index, 'volumEnableOperation'] == 1 
-                 #and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
-                 #and df.loc[index, 'trend_min'] == DOWNWARD_TREND
+                 and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
+                 and df.loc[index, 'trend_min'] == DOWNWARD_TREND
                  #and df.loc[index, 'ema'] < df.loc[index, 'ema_slow']
                  #and df.loc[index, 'bidclose'] < df.loc[index, 'ema']
                  ):  
@@ -401,8 +401,8 @@ def Update(pricedata):
              elif (  df.loc[index, 'peaks_min'] == 1
                  #  and df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
                    #and df.loc[index, 'volumEnableOperation'] == 1 
-                  # and df.loc[index, 'trend_max'] == UPWARD_TREND 
-                  #and df.loc[index, 'trend_min'] == UPWARD_TREND
+                  and df.loc[index, 'trend_max'] == UPWARD_TREND 
+                  and df.loc[index, 'trend_min'] == UPWARD_TREND
                  #and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']
                  #and df.loc[index, 'bidclose'] > df.loc[index, 'ema']
                  ): 
