@@ -27,7 +27,7 @@ valstop = -15
 plt.style.use('dark_background')
 
 def readData():
-    return pd.read_csv(symbol + '_m30.csv')
+    return pd.read_csv(symbol + '_m1.csv')
 
 class SubplotAnimation(animation.TimedAnimation):
     def __init__(self):
@@ -136,10 +136,14 @@ class SubplotAnimation(animation.TimedAnimation):
         self.buybidclose.set_data(
             pricedata.loc[pricedata.zone_buy == -1.0].index, pricedata.bidclose[pricedata.zone_buy == -1.0])
 
+
+
         self.peaks_min.set_data(
             pricedata.loc[pricedata.peaks_min == 1.0].index, pricedata.bidclose[pricedata.peaks_min == 1.0])
         self.peaks_max.set_data(
             pricedata.loc[pricedata.peaks_max == 1.0].index, pricedata.bidclose[pricedata.peaks_max == 1.0])
+        
+        
         # # Plot results
         #self.axPicsLinePriceHigh.set_data(x, pricedata['bidhigh'])
         #self.axPicsLinePriceLow.set_data(x, pricedata['bidlow'])
