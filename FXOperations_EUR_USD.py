@@ -289,11 +289,11 @@ def Update(pricedata):
     df.index = df['row_count'].values
 
     # HMA fast and slow calculation
-    df['ema'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_slow'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res1'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res2'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res3'] = df['bidclose'].ewm(span=100).mean()
+    df['ema'] = df['bidclose'].ewm(span=5).mean()
+    df['ema_slow'] = df['bidclose'].ewm(span=30).mean()
+    df['ema_res1'] = df['bidclose'].ewm(span=30).mean()
+    df['ema_res2'] = df['bidclose'].ewm(span=30).mean()
+    df['ema_res3'] = df['bidclose'].ewm(span=30).mean()
 
     df['rsi'] = rsi(df['bidclose'], 15)
     df['sto_k'] = sto.percent_k(df['bidclose'], 10)
@@ -303,8 +303,8 @@ def Update(pricedata):
 
     # Medias Strategy
     #Sell
-    df['MediaSell'] = np.where( (df['ema_slow'] < df['ema_res1']), 1, 0 )
-    df['MediaBuy'] = np.where( (df['ema_slow'] > df['ema_res1']), 1, 0)
+    df['MediaSell'] = np.where( (df['ema'] < df['ema_res1']), 1, 0 )
+    df['MediaBuy'] = np.where( (df['ema'] > df['ema_res1']), 1, 0)
     df['MediaTriggerSell'] = df['MediaSell'].diff()
     df['MediaTriggerBuy'] = df['MediaBuy'].diff()
 
@@ -356,6 +356,19 @@ def Update(pricedata):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
     #Find Difference in PIPS AND VOLUMEN
     for index, row in df.iterrows():        
         if df.loc[index, 'peaks_max'] == 1:
@@ -389,34 +402,45 @@ def Update(pricedata):
     for index, row in df.iterrows():
         try:   #and df.loc[index + 5, 'bidclose'] < df.loc[index + 5, 'ema']
                #  and df.loc[index + 5, 'bidclose'] > df.loc[index + 5, 'ema']   and 
-             if ( df.loc[index, 'peaks_max'] == 1 
-                 and df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
+             if ( df.loc[index, 'MediaTriggerSell'] == 1 #and                 
+                  #df.loc[index, 'peaks_max'] == 1 
+                 #df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
                  #and df.loc[index, 'volumEnableOperation'] == 1 
                  #and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
                  #and df.loc[index, 'trend_min'] == DOWNWARD_TREND
                  #and df.loc[index, 'ema'] < df.loc[index, 'ema_slow']
                  #and df.loc[index, 'bidclose'] < df.loc[index, 'ema']
                  ):  
-                    df.loc[index, 'priceInPositionSell'] = 1
-             elif (  df.loc[index, 'peaks_min'] == 1
-                   and df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
+                            iRV = 0
+                            while (iRV <= 10):
+                                iRV = iRV + 1
+                                poscheck = index - iRV
+                                if df.loc[poscheck, 'peaks_max'] == 1:
+                                    df.loc[index, 'priceInPositionSell'] = 1
+             elif (  df.loc[index, 'MediaTriggerBuy'] == 1 #and                  
+                     #df.loc[index, 'peaks_min'] == 1
+                  #df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
                    #and df.loc[index, 'volumEnableOperation'] == 1 
                   #and df.loc[index, 'trend_max'] == UPWARD_TREND 
                   #and df.loc[index, 'trend_min'] == UPWARD_TREND
                  #and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']
                  #and df.loc[index, 'bidclose'] > df.loc[index, 'ema']
                  ): 
-                    df.loc[index, 'priceInPositionBuy'] = 1
+                        iRV = 0
+                        while (iRV <= 10):
+                            iRV = iRV + 1
+                            poscheck = index - iRV
+                            if df.loc[poscheck, 'peaks_min'] == 1:
+                                df.loc[index, 'priceInPositionBuy'] = 1
         except:
             print("peaks: In Validation")
 
 
+
+
+
     df['sell'] = np.where( (df['priceInPositionSell'] == 1) , 1, 0)
-    
-
-
-
-    
+        
     # Close Strategy Operation Sell
     operationActive = False
     for index, row in df.iterrows():
@@ -431,7 +455,7 @@ def Update(pricedata):
 
     df['zone_sell'] = df['sell'].diff()
 
-    if df['zone_sell'][len(df) - 3] == -1:
+    if df['zone_sell'][len(df) - 7] == -1:
         CloseOperation(BuySell = "B")
 
 
@@ -460,7 +484,7 @@ def Update(pricedata):
 
     df['zone_buy'] = df['buy'].diff()
 
-    if df['zone_buy'][len(df) - 3] == -1:
+    if df['zone_buy'][len(df) - 7] == -1:
         CloseOperation(BuySell= "S")
 
 
