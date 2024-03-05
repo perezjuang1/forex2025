@@ -13,6 +13,7 @@ from forexconnect import fxcorepy, ForexConnect
 from ConfigurationOperation import ConfigurationOperation
 import datetime as dt
 from forexconnect import fxcorepy, ForexConnect, Common
+import Probabilidades.RegrsionLineal2 as regresionlineal2
 
 args = ConfigurationOperation()
 
@@ -289,13 +290,13 @@ def Update(pricedata):
     df.index = df['row_count'].values
 
     # HMA fast and slow calculation
-    df['ema'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_slow'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res1'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res2'] = df['bidclose'].ewm(span=100).mean()
-    df['ema_res3'] = df['bidclose'].ewm(span=100).mean()
+    df['ema'] = df['bidclose'].ewm(span=7).mean()
+    df['ema_slow'] = df['bidclose'].ewm(span=30).mean()
+    df['ema_res1'] = df['bidclose'].ewm(span=30).mean()
+    df['ema_res2'] = df['bidclose'].ewm(span=30).mean()
+    df['ema_res3'] = df['bidclose'].ewm(span=30).mean()
 
-    df['rsi'] = rsi(df['bidclose'], 15)
+    df['rsi'] = rsi(df['bidclose'], 14)
     df['sto_k'] = sto.percent_k(df['bidclose'], 10)
     df['sto_d'] = sto.percent_d(df['bidclose'], 10)
     df['sto_k'] = df['sto_k'].ewm(span=10).mean()
@@ -303,16 +304,75 @@ def Update(pricedata):
 
     # Medias Strategy
     #Sell
-    df['MediaSell'] = np.where( (df['ema_slow'] < df['ema_res1']), 1, 0 )
-    df['MediaBuy'] = np.where( (df['ema_slow'] > df['ema_res1']), 1, 0)
+    df['MediaSell'] = np.where( (df['ema'] < df['ema_res1']), 1, 0 )
+    df['MediaBuy'] = np.where( (df['ema'] > df['ema_res1']), 1, 0)
     df['MediaTriggerSell'] = df['MediaSell'].diff()
     df['MediaTriggerBuy'] = df['MediaBuy'].diff()
 
 
     df['value1'] = 1
     # Find local peaks
-    df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less_equal,order=30)[0]]['value1']
-    df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater_equal,order=30)[0]]['value1']
+    df['peaks_min'] = df.iloc[signal.argrelextrema(df['ema_slow'].values,np.less,order=15)[0]]['value1']
+    df['peaks_max'] = df.iloc[signal.argrelextrema(df['ema_slow'].values,np.greater,order=15)[0]]['value1']
+
+
+    # ***********************************************************
+    # *  Regresion al precio de cierre las velas ================
+    # ***********************************************************
+    df['x'] = np.arange(len(df['bidclose']))
+
+    # ************* Calcular la poscion Relativa Y
+    for index, row in df.iterrows():
+        df.loc[index, 'y'] = int('{:.5f}'.format((df.loc[index, 'bidclose'])).replace('.', ''))
+        max_value = max(np.array(df['y'].values))
+        min_value = min(np.array(df['y'].values))
+
+    for index, row in df.iterrows():
+        value = df.loc[index, 'y'] - min_value
+        NewPricePosition = ((value * 100) / max_value) * 100
+        df.loc[index, 'y'] = NewPricePosition
+
+    # ***********  Calcular la poscion Relativa X
+    max_value = max(np.array(df['x'].values))
+    min_value = min(np.array(df['x'].values))
+    for index, row in df.iterrows():
+        value = df.loc[index, 'x'] - min_value
+        NewPricePosition = ((value * 100) / max_value)
+        df.loc[index, 'x'] = NewPricePosition
+
+    regresionLineal_xx = np.array(df['x'].values)
+    regresionLineal_yy = np.array(df['y'].values)
+
+    regresionLineal_bb = regresionlineal2.estimate_b0_b1(regresionLineal_xx, regresionLineal_yy)
+    y_pred_sup = regresionLineal_bb[0] + regresionLineal_bb[1] * regresionLineal_xx
+    df['y_pred'] = y_pred_sup
+
+    if df.iloc[len(df) - 1]['y_pred'] < \
+            df.iloc[1]['y_pred'] and \
+            df.iloc[len(df) - 1]['y_pred'] < \
+            df.iloc[1]['y_pred']:
+        lv_Tendency = "Bajista"
+    elif df.iloc[len(df) - 1]['y_pred'] > \
+            df.iloc[1]['y_pred'] and \
+            df.iloc[len(df) - 1]['y_pred'] > \
+            df.iloc[1]['y_pred']:
+        lv_Tendency = "Alcista"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     #Find Tendencies Pics Min
     trend = "NOT FINDED"
@@ -356,6 +416,8 @@ def Update(pricedata):
 
 
 
+
+
     #Find Difference in PIPS AND VOLUMEN
     for index, row in df.iterrows():        
         if df.loc[index, 'peaks_max'] == 1:
@@ -389,34 +451,49 @@ def Update(pricedata):
     for index, row in df.iterrows():
         try:   #and df.loc[index + 5, 'bidclose'] < df.loc[index + 5, 'ema']
                #  and df.loc[index + 5, 'bidclose'] > df.loc[index + 5, 'ema']   and 
-             if ( df.loc[index, 'peaks_max'] == 1 
-                 and df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
+             if ( #df.loc[index, 'MediaTriggerSell'] == 1 #and                 
+                 df.loc[index, 'peaks_max'] == 1
+                 #and df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
                  #and df.loc[index, 'volumEnableOperation'] == 1 
-                 #and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
-                 #and df.loc[index, 'trend_min'] == DOWNWARD_TREND
+                 and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
+                 and df.loc[index, 'trend_min'] == DOWNWARD_TREND
                  #and df.loc[index, 'ema'] < df.loc[index, 'ema_slow']
+                 and df.loc[index, 'rsi'] < 50
                  #and df.loc[index, 'bidclose'] < df.loc[index, 'ema']
                  ):  
-                    df.loc[index, 'priceInPositionSell'] = 1
-             elif (  df.loc[index, 'peaks_min'] == 1
-                   and df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
+                            #iRV = 0
+                            #while (iRV <= 5):
+                                #iRV = iRV + 1
+                                #poscheck = index - iRV
+                                #if df.loc[poscheck, 'peaks_max'] == 1:
+                                    df.loc[index, 'priceInPositionSell'] = 1
+             elif (  #df.loc[index, 'MediaTriggerBuy'] == 1 #and                  
+                     df.loc[index, 'peaks_min'] == 1
+                   # and  df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
                    #and df.loc[index, 'volumEnableOperation'] == 1 
-                  #and df.loc[index, 'trend_max'] == UPWARD_TREND 
-                  #and df.loc[index, 'trend_min'] == UPWARD_TREND
-                 #and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']
+                  and df.loc[index, 'trend_max'] == UPWARD_TREND 
+                  and df.loc[index, 'trend_min'] == UPWARD_TREND
+                  #and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']
+                  and df.loc[index, 'rsi'] > 50
                  #and df.loc[index, 'bidclose'] > df.loc[index, 'ema']
                  ): 
-                    df.loc[index, 'priceInPositionBuy'] = 1
+                        #iRV = 0
+                        #while (iRV <= 5):
+                        #    iRV = iRV + 1
+                        #    poscheck = index - iRV
+                        #    if df.loc[poscheck, 'peaks_min'] == 1:
+                                df.loc[index, 'priceInPositionBuy'] = 1
         except:
             print("peaks: In Validation")
 
 
+
+    # ***********************************************************
+    # * Estrategy  SELL
+    # ***********************************************************
+
     df['sell'] = np.where( (df['priceInPositionSell'] == 1) , 1, 0)
-    
-
-
-
-    
+        
     # Close Strategy Operation Sell
     operationActive = False
     for index, row in df.iterrows():
@@ -428,14 +505,16 @@ def Update(pricedata):
             operationActive = False
 
 
-
+    #Close Operation
     df['zone_sell'] = df['sell'].diff()
 
-    if df['zone_sell'][len(df) - 7] == -1:
-        CloseOperation(BuySell = "B")
+    if df['zone_sell'][len(df) - 3] == -1:
+        if existingOperation(instrument=instrument_symbol, BuySell= "B"):
+            CloseOperation(BuySell = "B")
 
-
-    if df['zone_sell'][len(df) - 7] == 1:
+    #Open Operation
+    if df['zone_sell'][len(df) - 3] == 1:
+        print("	  SELL SIGNAL! ")
         if existingOperation(instrument=instrument_symbol, BuySell= "S")  != True:
             createEntryOrder(str_buy_sell="S")
 
@@ -444,7 +523,6 @@ def Update(pricedata):
     # * Estrategy  BUY
     # ***********************************************************
     df['buy'] = np.where( (df['priceInPositionBuy'] == 1) , 1, 0)
-
 
     # Close Strategy Operation Sell
     operationActive = False
@@ -457,14 +535,14 @@ def Update(pricedata):
            operationActive = False
 
 
-
+    # Close  Operation
     df['zone_buy'] = df['buy'].diff()
+    if df['zone_buy'][len(df) - 3] == -1:
+        if existingOperation(instrument=instrument_symbol, BuySell= "S"):
+             CloseOperation(BuySell= "S")
 
-    if df['zone_buy'][len(df) - 7] == -1:
-        CloseOperation(BuySell= "S")
-
-
-    if df['zone_buy'][len(df) - 7] == 1:
+    # Open Operation
+    if df['zone_buy'][len(df) - 3] == 1:
         print("	  BUY SIGNAL! ")
         if existingOperation(instrument=instrument_symbol, BuySell= "B") != True:
             createEntryOrder(str_buy_sell="B")
@@ -472,5 +550,6 @@ def Update(pricedata):
 
     df.to_csv(file)
     print(str(dt.datetime.now()) + " " + args.timeframe +  " Update Function Completed. " + instrument_symbol + "\n")
+
 
 StrategyHeartBeat()  # Run strategy

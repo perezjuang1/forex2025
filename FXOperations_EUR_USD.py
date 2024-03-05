@@ -8,11 +8,11 @@ from scipy import signal
 from time import sleep
 from forexconnect import fxcorepy, ForexConnect, Common
 import os
-from urllib.request import urlopen
 from forexconnect import fxcorepy, ForexConnect
 from ConfigurationOperation import ConfigurationOperation
 import datetime as dt
 from forexconnect import fxcorepy, ForexConnect, Common
+import Probabilidades.RegrsionLineal2 as regresionlineal2
 
 args = ConfigurationOperation()
 
@@ -37,7 +37,7 @@ def session_status_changed(session: fxcorepy.O2GSession,
 
 
 
-def CloseOperation(BuySell):
+def CloseOperation(instrument,BuySell):
     with ForexConnect() as fx:
         try:
             fx.login(args.userid, args.password, args.url, session_status_callback=session_status_changed)
@@ -48,20 +48,23 @@ def CloseOperation(BuySell):
             print(accountId)            
             orders_table = fx.get_table(ForexConnect.TRADES)
             for trade in orders_table:
-                offer = Common.get_offer(fx, instrument_symbol)
-                buy = fxcorepy.Constants.BUY
-                sell = fxcorepy.Constants.SELL
-                buy_sell = sell if trade.buy_sell == buy else buy
-                if BuySell == trade.buy_sell:
-                    request = fx.create_order_request(
-                        order_type=fxcorepy.Constants.Orders.TRUE_MARKET_CLOSE,
-                        OFFER_ID=offer.offer_id,
-                        ACCOUNT_ID=accountId,
-                        BUY_SELL=buy_sell,
-                        AMOUNT=trade.amount,
-                        TRADE_ID=trade.trade_id
-                        )
-                    fx.send_request(request)
+                if trade.instrument == instrument and trade.buy_sell == BuySell:   
+                    buy_sell = fxcorepy.Constants.SELL if trade.buy_sell == fxcorepy.Constants.BUY else fxcorepy.Constants.BUY                
+                    print('Closing ' + str(buy_sell))
+                    if buy_sell != None:
+                        request = fx.create_order_request(
+                            order_type=fxcorepy.Constants.Orders.TRUE_MARKET_CLOSE,
+                            OFFER_ID=trade.offer_id,
+                            ACCOUNT_ID=accountId,
+                            BUY_SELL=buy_sell,
+                            AMOUNT=trade.amount,
+                            TRADE_ID=trade.trade_id
+                            )
+                        fx.send_request(request)
+                        print('Request Sended')
+                    print('Closed ' + str(buy_sell))
+                else:
+                     print('Trade is not the same ' + str(buy_sell) + ' != ' + str(trade.BuySell))
             fx.logout()
         except Exception as e:
             print("Exception: " + str(e))
@@ -74,7 +77,7 @@ def existingOperation(instrument, BuySell):
             fx.login(args.userid, args.password, args.url, session_status_callback=session_status_changed)
             trades_table = fx.get_table(ForexConnect.TRADES)            
             for trade_row in trades_table:
-                    if BuySell == trade_row.BuySell:
+                    if BuySell == trade_row.BuySell and trade_row.instrument == instrument:                       
                         print("Existing Trade: " + str(trade_row.TradeID))
                         existOperation = True                  
             fx.logout()
@@ -100,14 +103,13 @@ def getLatestPriceData():
             print("Exception: " + str(e))
 
 
-def createEntryOrder(str_buy_sell=None):
+def createEntryOrder(str_instrument, str_buy_sell=None):
     str_user_id = args.userid
     str_password = args.password
     str_url = args.url
     str_connection = args.connectiontype
     str_session_id = args.session
     str_pin = args.pin
-    str_instrument = instrument_symbol
     str_lots = args.lots
     str_account = args.account
     stop = args.stop
@@ -246,9 +248,9 @@ def StrategyHeartBeat():
     print("Starting.....") 
     pricedata = getLatestPriceData()
     Update(pricedata)
+    print("Started..... Estrategy " + str(args.timeframe)) 
     while True:
         currenttime = dt.datetime.now()
-        print(str(currenttime) + "=========================================================================")
         if args.timeframe == "m1" and currenttime.second == 0:
             pricedata = getLatestPriceData( )
             Update(pricedata)
@@ -275,7 +277,10 @@ def StrategyHeartBeat():
 
 
 def Update(pricedata):
-    print(str(dt.datetime.now()) + " " + args.timeframe + " Bar Closed " + instrument_symbol)
+    print("===============================================")
+    print("===========       Start       =================")
+    print("===============================================")
+    print(str(dt.datetime.now()) + " TimeFrame: " + args.timeframe + " Instrument:  " + instrument_symbol)
 
     d = {'bidhigh': pricedata['BidHigh'],
          'bidlow': pricedata['BidLow'],
@@ -289,13 +294,13 @@ def Update(pricedata):
     df.index = df['row_count'].values
 
     # HMA fast and slow calculation
-    df['ema'] = df['bidclose'].ewm(span=5).mean()
+    df['ema'] = df['bidclose'].ewm(span=30).mean()
     df['ema_slow'] = df['bidclose'].ewm(span=30).mean()
     df['ema_res1'] = df['bidclose'].ewm(span=30).mean()
     df['ema_res2'] = df['bidclose'].ewm(span=30).mean()
     df['ema_res3'] = df['bidclose'].ewm(span=30).mean()
 
-    df['rsi'] = rsi(df['bidclose'], 15)
+    df['rsi'] = rsi(df['bidclose'], 14)
     df['sto_k'] = sto.percent_k(df['bidclose'], 10)
     df['sto_d'] = sto.percent_d(df['bidclose'], 10)
     df['sto_k'] = df['sto_k'].ewm(span=10).mean()
@@ -311,8 +316,55 @@ def Update(pricedata):
 
     df['value1'] = 1
     # Find local peaks
-    df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=30)[0]]['value1']
-    df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=30)[0]]['value1']
+    df['peaks_min'] = df.iloc[signal.argrelextrema(df['ema_res1'].values,np.less,order=30)[0]]['value1']
+    df['peaks_max'] = df.iloc[signal.argrelextrema(df['ema_res1'].values,np.greater,order=30)[0]]['value1']
+
+
+    # ***********************************************************
+    # *  Regresion al precio de cierre las velas ================
+    # ***********************************************************
+    df['x'] = np.arange(len(df['bidclose']))
+
+    # ************* Calcular la poscion Relativa Y
+    for index, row in df.iterrows():
+        df.loc[index, 'y'] = int('{:.5f}'.format((df.loc[index, 'bidclose'])).replace('.', ''))
+        max_value = max(np.array(df['y'].values))
+        min_value = min(np.array(df['y'].values))
+
+    for index, row in df.iterrows():
+        value = df.loc[index, 'y'] - min_value
+        NewPricePosition = ((value * 100) / max_value) * 100
+        df.loc[index, 'y'] = NewPricePosition
+
+    # ***********  Calcular la poscion Relativa X
+    max_value = max(np.array(df['x'].values))
+    min_value = min(np.array(df['x'].values))
+    for index, row in df.iterrows():
+        value = df.loc[index, 'x'] - min_value
+        NewPricePosition = ((value * 100) / max_value)
+        df.loc[index, 'x'] = NewPricePosition
+
+    regresionLineal_xx = np.array(df['x'].values)
+    regresionLineal_yy = np.array(df['y'].values)
+
+    regresionLineal_bb = regresionlineal2.estimate_b0_b1(regresionLineal_xx, regresionLineal_yy)
+    y_pred_sup = regresionLineal_bb[0] + regresionLineal_bb[1] * regresionLineal_xx
+    df['y_pred'] = y_pred_sup
+
+    if df.iloc[len(df) - 1]['y_pred'] < \
+            df.iloc[1]['y_pred'] and \
+            df.iloc[len(df) - 1]['y_pred'] < \
+            df.iloc[1]['y_pred']:
+        lv_Tendency = "Bajista"
+    elif df.iloc[len(df) - 1]['y_pred'] > \
+            df.iloc[1]['y_pred'] and \
+            df.iloc[len(df) - 1]['y_pred'] > \
+            df.iloc[1]['y_pred']:
+        lv_Tendency = "Alcista"
+
+
+
+
 
     #Find Tendencies Pics Min
     trend = "NOT FINDED"
@@ -354,21 +406,6 @@ def Update(pricedata):
         df.loc[index, 'trend_max'] = trend
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     #Find Difference in PIPS AND VOLUMEN
     for index, row in df.iterrows():        
         if df.loc[index, 'peaks_max'] == 1:
@@ -402,45 +439,47 @@ def Update(pricedata):
     for index, row in df.iterrows():
         try:   #and df.loc[index + 5, 'bidclose'] < df.loc[index + 5, 'ema']
                #  and df.loc[index + 5, 'bidclose'] > df.loc[index + 5, 'ema']   and 
-             if ( df.loc[index, 'MediaTriggerSell'] == 1 #and                 
-                  #df.loc[index, 'peaks_max'] == 1 
-                 #df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
+             if ( #df.loc[index, 'MediaTriggerSell'] == 1 #and                 
+                 df.loc[index, 'peaks_max'] == 1
+                 #and df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
                  #and df.loc[index, 'volumEnableOperation'] == 1 
-                 #and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
+                 and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
                  #and df.loc[index, 'trend_min'] == DOWNWARD_TREND
                  #and df.loc[index, 'ema'] < df.loc[index, 'ema_slow']
+                 #and df.loc[index, 'rsi'] > 50
                  #and df.loc[index, 'bidclose'] < df.loc[index, 'ema']
                  ):  
-                            iRV = 0
-                            while (iRV <= 10):
-                                iRV = iRV + 1
-                                poscheck = index - iRV
-                                if df.loc[poscheck, 'peaks_max'] == 1:
+                            #iRV = 0
+                            #while (iRV <= 5):
+                                #iRV = iRV + 1
+                                #poscheck = index - iRV
+                                #if df.loc[poscheck, 'peaks_max'] == 1:
                                     df.loc[index, 'priceInPositionSell'] = 1
-             elif (  df.loc[index, 'MediaTriggerBuy'] == 1 #and                  
-                     #df.loc[index, 'peaks_min'] == 1
-                  #df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
+             elif (  #df.loc[index, 'MediaTriggerBuy'] == 1 #and                  
+                     df.loc[index, 'peaks_min'] == 1
+                   # and  df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
                    #and df.loc[index, 'volumEnableOperation'] == 1 
                   #and df.loc[index, 'trend_max'] == UPWARD_TREND 
-                  #and df.loc[index, 'trend_min'] == UPWARD_TREND
-                 #and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']
+                  and df.loc[index, 'trend_min'] == UPWARD_TREND
+                  #and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']
+                  #and df.loc[index, 'rsi'] < 50
                  #and df.loc[index, 'bidclose'] > df.loc[index, 'ema']
                  ): 
-                        iRV = 0
-                        while (iRV <= 10):
-                            iRV = iRV + 1
-                            poscheck = index - iRV
-                            if df.loc[poscheck, 'peaks_min'] == 1:
+                        #iRV = 0
+                        #while (iRV <= 5):
+                        #    iRV = iRV + 1
+                        #    poscheck = index - iRV
+                        #    if df.loc[poscheck, 'peaks_min'] == 1:
                                 df.loc[index, 'priceInPositionBuy'] = 1
         except:
             print("peaks: In Validation")
 
 
-
-
-
     df['sell'] = np.where( (df['priceInPositionSell'] == 1) , 1, 0)
-        
+    df['buy'] = np.where( (df['priceInPositionBuy'] == 1) , 1, 0)
+    # ***********************************************************
+    # * Closs Operation First
+    # ***********************************************************
     # Close Strategy Operation Sell
     operationActive = False
     for index, row in df.iterrows():
@@ -450,25 +489,6 @@ def Update(pricedata):
             df.loc[index, 'sell'] = 1
         if df.loc[index, 'peaks_min'] == 1:
             operationActive = False
-
-
-
-    df['zone_sell'] = df['sell'].diff()
-
-    if df['zone_sell'][len(df) - 7] == -1:
-        CloseOperation(BuySell = "B")
-
-
-    if df['zone_sell'][len(df) - 3] == 1:
-        if existingOperation(instrument=instrument_symbol, BuySell= "S")  != True:
-            createEntryOrder(str_buy_sell="S")
-
-
-    # ***********************************************************
-    # * Estrategy  BUY
-    # ***********************************************************
-    df['buy'] = np.where( (df['priceInPositionBuy'] == 1) , 1, 0)
-
 
     # Close Strategy Operation Sell
     operationActive = False
@@ -480,19 +500,48 @@ def Update(pricedata):
         if (df.loc[index, 'peaks_max'] == 1):
            operationActive = False
 
+    #Close Operation
+    df['zone_sell'] = df['sell'].diff()
+    if df['zone_sell'][len(df) - 6] == -1:
+        if existingOperation(instrument=instrument_symbol, BuySell= "S"):
+            CloseOperation(instrument=instrument_symbol,BuySell = "S")
 
 
+    # Close  Operation
     df['zone_buy'] = df['buy'].diff()
+    if df['zone_buy'][len(df) - 6] == -1:
+        if existingOperation(instrument=instrument_symbol, BuySell= "B"):
+             CloseOperation(instrument=instrument_symbol,BuySell= "B")
 
-    if df['zone_buy'][len(df) - 7] == -1:
-        CloseOperation(BuySell= "S")
+    # ***********************************************************
+    # * Estrategy  SELL
+    # ***********************************************************
+
+    #Open Operation
+    if df['zone_sell'][len(df) - 6] == 1:
+        print("	  SELL SIGNAL! ")
+        if existingOperation(instrument=instrument_symbol, BuySell= "B"):
+             CloseOperation(instrument=instrument_symbol,BuySell= "B")
+        if existingOperation(instrument=instrument_symbol, BuySell= "S")  != True:
+            createEntryOrder(str_instrument=instrument_symbol,str_buy_sell="S")
 
 
-    if df['zone_buy'][len(df) - 3] == 1:
+    # ***********************************************************
+    # * Estrategy  BUY
+    # ***********************************************************
+
+
+    # Open Operation
+    if df['zone_buy'][len(df) - 6] == 1:
         print("	  BUY SIGNAL! ")
+        if existingOperation(instrument=instrument_symbol, BuySell= "S"):
+            CloseOperation(instrument=instrument_symbol,BuySell = "S")
         if existingOperation(instrument=instrument_symbol, BuySell= "B") != True:
-            createEntryOrder(str_buy_sell="B")
-
+            createEntryOrder(str_instrument=instrument_symbol,str_buy_sell="B")
+    
+    # Log Operation =================================================
+            
+    print(  df[['peaks_max','sell','zone_sell','peaks_min','buy','zone_buy', 'trend_min', 'trend_max']].tail(7)  ) 
 
     df.to_csv(file)
     print(str(dt.datetime.now()) + " " + args.timeframe +  " Update Function Completed. " + instrument_symbol + "\n")

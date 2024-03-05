@@ -20,10 +20,6 @@ fileName = fileName.replace("Plotter_", "")
 symbol = fileName  # .replace("_", "/")
 
 
-amount_value = 1
-vallimit = 8
-valstop = -15
-
 plt.style.use('dark_background')
 
 def readData():
@@ -33,10 +29,10 @@ class SubplotAnimation(animation.TimedAnimation):
     def __init__(self):
         fig = plt.figure()
 
-        self.axBase = fig.add_subplot(4, 1, 1)
-        self.RSI = fig.add_subplot(4, 1, 2)
-        self.VOLUM = fig.add_subplot(4, 1, 3)
-        self.STO = fig.add_subplot(4, 1, 4)
+        self.axBase = fig.add_subplot(1, 1, 1)
+        #self.RSI = fig.add_subplot(4, 1, 2)
+        #self.VOLUM = fig.add_subplot(4, 1, 3)
+        #self.STO = fig.add_subplot(4, 1, 4)
 
         self.t = np.linspace(0, 80, 400)
 
@@ -70,50 +66,50 @@ class SubplotAnimation(animation.TimedAnimation):
         self.axBase.add_line(self.peaks_max)
 
 
-        self.VOLUM.set_xlabel('VOLUM')
-        self.VOLUM.set_ylabel('Volumen')
-        self.VOLUMLineVolum = Line2D([], [], color='blue')
-        self.VOLUMLinePromedio = Line2D([], [], color='orange')
+        #self.VOLUM.set_xlabel('VOLUM')
+        #self.VOLUM.set_ylabel('Volumen')
+        #self.VOLUMLineVolum = Line2D([], [], color='blue')
+        #self.VOLUMLinePromedio = Line2D([], [], color='orange')
         #self.VOLUMFast = Line2D([], [], color='green')
         #self.VOLUMLimit = Line2D([], [], color='red')
 
-        self.VOLUM.add_line(self.VOLUMLineVolum)
-        self.VOLUM.add_line(self.VOLUMLinePromedio)
+        #self.VOLUM.add_line(self.VOLUMLineVolum)
+        #self.VOLUM.add_line(self.VOLUMLinePromedio)
         # self.VOLUM.add_line(self.VOLUMFast)
         # self.VOLUM.add_line(self.VOLUMLimit)
 
-        self.RSI.set_xlabel('DATE')
-        self.RSI.set_ylabel('RSI')
-        self.lineRSI_INF = Line2D([], [], color='red')
-        self.lineRSI_SUP = Line2D([], [], color='red')
-        self.lineRSI_MED = Line2D([], [], color='white')
-        self.lineRSI = Line2D([], [], color='orange')
+        #self.RSI.set_xlabel('DATE')
+        #self.RSI.set_ylabel('RSI')
+        #self.lineRSI_INF = Line2D([], [], color='red')
+        #self.lineRSI_SUP = Line2D([], [], color='red')
+        #self.lineRSI_MED = Line2D([], [], color='white')
+        #self.lineRSI = Line2D([], [], color='orange')
 
-        self.RSI.add_line(self.lineRSI_INF)
-        self.RSI.add_line(self.lineRSI_SUP)
-        self.RSI.add_line(self.lineRSI_MED)
-        self.RSI.add_line(self.lineRSI)
+        #self.RSI.add_line(self.lineRSI_INF)
+        #self.RSI.add_line(self.lineRSI_SUP)
+        #self.RSI.add_line(self.lineRSI_MED)
+        #self.RSI.add_line(self.lineRSI)
 
 
-        self.STO.set_xlabel('DATE')
-        self.STO.set_ylabel('STO')
-        self.STO_K = Line2D([], [], color='green')
-        self.STO_D = Line2D([], [], color='red')
-        self.sto_LimitSup = Line2D([], [], color='orange')
-        self.sto_LImitInf = Line2D([], [], color='orange')
+        #self.STO.set_xlabel('DATE')
+        #self.STO.set_ylabel('STO')
+        #self.STO_K = Line2D([], [], color='green')
+        #self.STO_D = Line2D([], [], color='red')
+        #self.sto_LimitSup = Line2D([], [], color='orange')
+        #self.sto_LImitInf = Line2D([], [], color='orange')
 
-        self.STO.add_line(self.STO_K)
-        self.STO.add_line(self.STO_D)
-        self.STO.add_line(self.sto_LimitSup)
-        self.STO.add_line(self.sto_LImitInf)
+        #self.STO.add_line(self.STO_K)
+        #self.STO.add_line(self.STO_D)
+        #self.STO.add_line(self.sto_LimitSup)
+        #self.STO.add_line(self.sto_LImitInf)
 
         animation.TimedAnimation.__init__(self, fig, interval=20000, blit=True)
 
     def _draw_frame(self, framedata):
         self.axBase.clear
-        self.RSI.clear
-        self.VOLUM.clear
-        self.STO.clear
+        #self.RSI.clear
+        #self.VOLUM.clear
+        #self.STO.clear
 
         pricedata = readData()
 
@@ -149,48 +145,48 @@ class SubplotAnimation(animation.TimedAnimation):
         #self.axPicsLinePriceLow.set_data(x, pricedata['bidlow'])
 
         # RSI
-        pricedata['RSI_INF'] = 30
-        pricedata['RSI_SUP'] = 70
-        pricedata['RSI_MED'] = 50
+        #pricedata['RSI_INF'] = 30
+        #pricedata['RSI_SUP'] = 70
+        #pricedata['RSI_MED'] = 50
 
-        self.lineRSI_INF.set_data(x, pricedata['RSI_INF'])
-        self.lineRSI_SUP.set_data(x, pricedata['RSI_SUP'])
-        self.lineRSI_MED.set_data(x, pricedata['RSI_MED'])
-        self.lineRSI.set_data(x, pricedata['rsi'])
+        #self.lineRSI_INF.set_data(x, pricedata['RSI_INF'])
+        #self.lineRSI_SUP.set_data(x, pricedata['RSI_SUP'])
+        #self.lineRSI_MED.set_data(x, pricedata['RSI_MED'])
+        #self.lineRSI.set_data(x, pricedata['rsi'])
 
-        self.VOLUMLineVolum.set_data(x, pricedata['volumenPipsDiference'])
-        self.VOLUMLinePromedio.set_data(x, pricedata['volumLimitOperation'])
+        #self.VOLUMLineVolum.set_data(x, pricedata['volumenPipsDiference'])
+        #self.VOLUMLinePromedio.set_data(x, pricedata['volumLimitOperation'])
         #self.VOLUMFast.set_data(x, pricedata['tickqtySMAFast'])
         #self.VOLUMLimit.set_data(x, pricedata['tickqtyLIMIT'])
 
-        self.RSI.relim()
-        self.RSI.autoscale_view()
+        #self.RSI.relim()
+        #self.RSI.autoscale_view()
 
 
 
         # STO
-        pricedata['sto_LimitSup'] = 0.20
-        pricedata['sto_LImitInf'] = 0.80
+        #pricedata['sto_LimitSup'] = 0.20
+        #pricedata['sto_LImitInf'] = 0.80
    
-        self.STO_K.set_data(x, pricedata['sto_k'])
-        self.STO_D.set_data(x, pricedata['sto_d'])
-        self.sto_LimitSup.set_data(x, pricedata['sto_LimitSup'])
-        self.sto_LImitInf.set_data(x, pricedata['sto_LImitInf'])
+        #self.STO_K.set_data(x, pricedata['sto_k'])
+        #self.STO_D.set_data(x, pricedata['sto_d'])
+        #self.sto_LimitSup.set_data(x, pricedata['sto_LimitSup'])
+        #self.sto_LImitInf.set_data(x, pricedata['sto_LImitInf'])
 
-        self.STO.relim()
-        self.STO.autoscale_view()
+        #self.STO.relim()
+        #self.STO.autoscale_view()
 
 
         self.axBase.relim()
         self.axBase.autoscale_view()
 
-        self.VOLUM.relim()
-        self.VOLUM.autoscale_view()
+        #self.VOLUM.relim()
+        #self.VOLUM.autoscale_view()
 
         self._drawn_artists = [self.linePrice, self.lineSMA200, self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, self.sellOpen, self.sellbidclose, self.buyOpen, self.buybidclose,self.peaks_min,self.peaks_max,
-                               self.lineRSI_INF, self.lineRSI_SUP, self.lineRSI,self.lineRSI_MED,
-                               self.VOLUMLineVolum, self.VOLUMLinePromedio,#self.VOLUMFast,self.VOLUMLimit,
-                               self.STO_K, self.STO_D, self.sto_LimitSup,self.sto_LImitInf,
+                               #self.lineRSI_INF, self.lineRSI_SUP, self.lineRSI,self.lineRSI_MED,
+                               #self.VOLUMLineVolum, self.VOLUMLinePromedio,#self.VOLUMFast,self.VOLUMLimit,
+                               #self.STO_K, self.STO_D, self.sto_LimitSup,self.sto_LImitInf,
                                ]
 
     def new_frame_seq(self):
@@ -198,9 +194,9 @@ class SubplotAnimation(animation.TimedAnimation):
 
     def _init_draw(self):
         lines = [self.linePrice, self.lineSMA200, self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, self.sellOpen, self.sellbidclose, self.buyOpen, self.buybidclose,self.peaks_min,self.peaks_max,
-                 self.lineRSI_INF, self.lineRSI_SUP, self.lineRSI,self.lineRSI_MED,
-                 self.VOLUMLineVolum, #self.VOLUMLinePromedio,self.VOLUMFast,self.VOLUMLimit,
-                 self.STO_K, self.STO_D, self.sto_LimitSup,self.sto_LImitInf,
+                 #self.lineRSI_INF, self.lineRSI_SUP, self.lineRSI,self.lineRSI_MED,
+                 #self.VOLUMLineVolum, self.VOLUMLinePromedio,#self.VOLUMFast,self.VOLUMLimit,
+                 #self.STO_K, self.STO_D, self.sto_LimitSup,self.sto_LImitInf,
                  ]
         for l in lines:
             l.set_data([], [])
