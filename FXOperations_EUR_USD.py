@@ -293,14 +293,18 @@ def Update(pricedata):
     df = df.assign(row_count=range(len(df)))
     df.index = df['row_count'].values
 
+
     # HMA fast and slow calculation
     df['ema'] = df['bidclose'].ewm(span=30).mean()
     df['ema_slow'] = df['bidclose'].ewm(span=30).mean()
-    df['ema_res1'] = df['bidclose'].ewm(span=30).mean()
+    df['ema_res1'] = df['bidclose'].ewm(span=1000).mean()
     df['ema_res2'] = df['bidclose'].ewm(span=30).mean()
     df['ema_res3'] = df['bidclose'].ewm(span=30).mean()
-
+    
+    # RSI
     df['rsi'] = rsi(df['bidclose'], 14)
+
+    # STO
     df['sto_k'] = sto.percent_k(df['bidclose'], 10)
     df['sto_d'] = sto.percent_d(df['bidclose'], 10)
     df['sto_k'] = df['sto_k'].ewm(span=10).mean()
@@ -313,11 +317,11 @@ def Update(pricedata):
     df['MediaTriggerSell'] = df['MediaSell'].diff()
     df['MediaTriggerBuy'] = df['MediaBuy'].diff()
 
-
     df['value1'] = 1
     # Find local peaks
-    df['peaks_min'] = df.iloc[signal.argrelextrema(df['ema_res1'].values,np.less,order=30)[0]]['value1']
-    df['peaks_max'] = df.iloc[signal.argrelextrema(df['ema_res1'].values,np.greater,order=30)[0]]['value1']
+    df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=30)[0]]['value1']
+    df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=30)[0]]['value1']
+  
 
 
     # ***********************************************************
@@ -343,148 +347,49 @@ def Update(pricedata):
         value = df.loc[index, 'x'] - min_value
         NewPricePosition = ((value * 100) / max_value)
         df.loc[index, 'x'] = NewPricePosition
+    
+    #regresionLineal_xx = np.array(df['x'].values)
+    #regresionLineal_yy = np.array(df['y'].values)
+    #regresionLineal_bb = regresionlineal2.estimate_b0_b1(regresionLineal_xx, regresionLineal_yy)
+    #y_pred_sup = regresionLineal_bb[0] + regresionLineal_bb[1] * regresionLineal_xx
+    #df['y_pred'] = y_pred_sup
 
-    regresionLineal_xx = np.array(df['x'].values)
-    regresionLineal_yy = np.array(df['y'].values)
 
+
+
+
+
+
+    filtered_df = df.tail(100) #df[df['peaks_max'] == 1]
+    regresionLineal_xx = np.array(filtered_df['x'].values)
+    regresionLineal_yy = np.array(filtered_df['y'].values)
     regresionLineal_bb = regresionlineal2.estimate_b0_b1(regresionLineal_xx, regresionLineal_yy)
     y_pred_sup = regresionLineal_bb[0] + regresionLineal_bb[1] * regresionLineal_xx
-    df['y_pred'] = y_pred_sup
+    filtered_df['y_pred'] = y_pred_sup
 
-    if df.iloc[len(df) - 1]['y_pred'] < \
-            df.iloc[1]['y_pred'] and \
-            df.iloc[len(df) - 1]['y_pred'] < \
-            df.iloc[1]['y_pred']:
+
+    for index, row in filtered_df.iterrows():
+        df.loc[index, 'y_pred'] = filtered_df.loc[index, 'y_pred']
+
+
+
+    lv_Tendency = "NA"
+    if filtered_df['y_pred'].iloc[0] >  filtered_df['y_pred'].iloc[-1]:
         lv_Tendency = "Bajista"
-    elif df.iloc[len(df) - 1]['y_pred'] > \
-            df.iloc[1]['y_pred'] and \
-            df.iloc[len(df) - 1]['y_pred'] > \
-            df.iloc[1]['y_pred']:
+    elif filtered_df['y_pred'].iloc[0] <  filtered_df['y_pred'].iloc[-1]:
         lv_Tendency = "Alcista"
 
 
-
-
-
-    #Find Tendencies Pics Min
-    trend = "NOT FINDED"
-    for index, row in df.iterrows():        
-        if df.loc[index, 'peaks_min'] == 1:
-            iRV = index
-            while (iRV > 1):
-                iRV = iRV - 1
-                if df.loc[iRV, 'peaks_min'] == 1:
-                    if df.loc[index, 'bidclose'] == df.loc[iRV, 'bidclose']:
-                        trend = trend
-                    if df.loc[index, 'bidclose'] < df.loc[iRV, 'bidclose']:
-                       trend = DOWNWARD_TREND
-                       iRV = 0
-                    else:
-                        trend = UPWARD_TREND
-                        iRV = 0
-        df.loc[index, 'trend_min'] = trend
-
-
-
-
-    #Find Tendencies Pics Max
-    trend = "NOT FINDED"
-    for index, row in df.iterrows():        
-        if df.loc[index, 'peaks_max'] == 1:
-            iRV = index
-            while (iRV > 1):
-                iRV = iRV - 1
-                if df.loc[iRV, 'peaks_max'] == 1:
-                    if df.loc[index, 'bidclose'] == df.loc[iRV, 'bidclose']:
-                        trend = trend
-                    if df.loc[index, 'bidclose'] < df.loc[iRV, 'bidclose']:
-                       trend = DOWNWARD_TREND
-                       iRV = 0
-                    else:
-                        trend = UPWARD_TREND
-                        iRV = 0
-        df.loc[index, 'trend_max'] = trend
-
-
-    #Find Difference in PIPS AND VOLUMEN
-    for index, row in df.iterrows():        
-        if df.loc[index, 'peaks_max'] == 1:
-            iRV = index
-            while (iRV > 1):
-                iRV = iRV - 1
-                if df.loc[iRV, 'peaks_min'] == 1:
-                      df.loc[index, 'volumenPipsDiference'] =  ( abs ( df.loc[index, 'bidclose'] - df.loc[iRV, 'bidclose'] ) )
-                      iRV = 1
-
-    for index, row in df.iterrows():        
-        if df.loc[index, 'peaks_min'] == 1:
-            iRV = index
-            while (iRV > 1):
-                iRV = iRV - 1
-                if df.loc[iRV, 'peaks_max'] == 1:
-                      df.loc[index, 'volumenPipsDiference'] = ( abs ( df.loc[index, 'bidclose'] - df.loc[iRV, 'bidclose'] ) )
-                      iRV = 1
-
-
-
-    df['volumenPipsDiference'] = 1#df['volumenPipsDiference'].fillna(method="ffill")
-    df['volumLimitOperation'] = 0.0006
-    df['volumEnableOperation'] = 1#np.where( (df['volumenPipsDiference'] >= df['volumLimitOperation']) , 1, 0)
-
-
-
-    #Find Price after pic if in correct position
-    df['priceInPositionSell'] = 0
-    df['priceInPositionBuy'] = 0
-    for index, row in df.iterrows():
-        try:   #and df.loc[index + 5, 'bidclose'] < df.loc[index + 5, 'ema']
-               #  and df.loc[index + 5, 'bidclose'] > df.loc[index + 5, 'ema']   and 
-             if ( #df.loc[index, 'MediaTriggerSell'] == 1 #and                 
-                 df.loc[index, 'peaks_max'] == 1
-                 #and df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
-                 #and df.loc[index, 'volumEnableOperation'] == 1 
-                 and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
-                 #and df.loc[index, 'trend_min'] == DOWNWARD_TREND
-                 #and df.loc[index, 'ema'] < df.loc[index, 'ema_slow']
-                 #and df.loc[index, 'rsi'] > 50
-                 #and df.loc[index, 'bidclose'] < df.loc[index, 'ema']
-                 ):  
-                            #iRV = 0
-                            #while (iRV <= 5):
-                                #iRV = iRV + 1
-                                #poscheck = index - iRV
-                                #if df.loc[poscheck, 'peaks_max'] == 1:
-                                    df.loc[index, 'priceInPositionSell'] = 1
-             elif (  #df.loc[index, 'MediaTriggerBuy'] == 1 #and                  
-                     df.loc[index, 'peaks_min'] == 1
-                   # and  df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
-                   #and df.loc[index, 'volumEnableOperation'] == 1 
-                  #and df.loc[index, 'trend_max'] == UPWARD_TREND 
-                  and df.loc[index, 'trend_min'] == UPWARD_TREND
-                  #and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']
-                  #and df.loc[index, 'rsi'] < 50
-                 #and df.loc[index, 'bidclose'] > df.loc[index, 'ema']
-                 ): 
-                        #iRV = 0
-                        #while (iRV <= 5):
-                        #    iRV = iRV + 1
-                        #    poscheck = index - iRV
-                        #    if df.loc[poscheck, 'peaks_min'] == 1:
-                                df.loc[index, 'priceInPositionBuy'] = 1
-        except:
-            print("peaks: In Validation")
-
-
-    df['sell'] = np.where( (df['priceInPositionSell'] == 1) , 1, 0)
-    df['buy'] = np.where( (df['priceInPositionBuy'] == 1) , 1, 0)
     # ***********************************************************
     # * Closs Operation First
     # ***********************************************************
     # Close Strategy Operation Sell
     operationActive = False
     for index, row in df.iterrows():
-        if df.loc[index, 'sell'] == 1:
+        df.loc[index, 'sell'] = 0
+        if df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'bidclose'] <=  df.loc[index, 'ema_res1']:
             operationActive = True
+            df.loc[index, 'sell'] = 1
         if operationActive == True:
             df.loc[index, 'sell'] = 1
         if df.loc[index, 'peaks_min'] == 1:
@@ -493,21 +398,21 @@ def Update(pricedata):
     # Close Strategy Operation Sell
     operationActive = False
     for index, row in df.iterrows():
-        if df.loc[index, 'buy'] == 1:
+        df.loc[index, 'buy'] = 0
+        if df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'bidclose'] >=  df.loc[index, 'ema_res1']:
             operationActive = True
+            df.loc[index, 'buy'] = 1
         if operationActive == True:
             df.loc[index, 'buy'] = 1
         if (df.loc[index, 'peaks_max'] == 1):
            operationActive = False
 
-    #Close Operation
+    #Close Operation SELL and BUY
     df['zone_sell'] = df['sell'].diff()
     if df['zone_sell'][len(df) - 6] == -1:
         if existingOperation(instrument=instrument_symbol, BuySell= "S"):
             CloseOperation(instrument=instrument_symbol,BuySell = "S")
 
-
-    # Close  Operation
     df['zone_buy'] = df['buy'].diff()
     if df['zone_buy'][len(df) - 6] == -1:
         if existingOperation(instrument=instrument_symbol, BuySell= "B"):
@@ -516,9 +421,8 @@ def Update(pricedata):
     # ***********************************************************
     # * Estrategy  SELL
     # ***********************************************************
-
     #Open Operation
-    if df['zone_sell'][len(df) - 6] == 1:
+    if df['zone_sell'][len(df) - 6] == 1 and lv_Tendency == "Bajista":
         print("	  SELL SIGNAL! ")
         if existingOperation(instrument=instrument_symbol, BuySell= "B"):
              CloseOperation(instrument=instrument_symbol,BuySell= "B")
@@ -529,10 +433,8 @@ def Update(pricedata):
     # ***********************************************************
     # * Estrategy  BUY
     # ***********************************************************
-
-
     # Open Operation
-    if df['zone_buy'][len(df) - 6] == 1:
+    if df['zone_buy'][len(df) - 6] == 1 and lv_Tendency == "Alcista":
         print("	  BUY SIGNAL! ")
         if existingOperation(instrument=instrument_symbol, BuySell= "S"):
             CloseOperation(instrument=instrument_symbol,BuySell = "S")
@@ -541,7 +443,7 @@ def Update(pricedata):
     
     # Log Operation =================================================
             
-    print(  df[['peaks_max','sell','zone_sell','peaks_min','buy','zone_buy', 'trend_min', 'trend_max']].tail(7)  ) 
+    #print(  df[['peaks_max','sell','zone_sell','peaks_min','buy','zone_buy']].tail(7)  ) 
 
     df.to_csv(file)
     print(str(dt.datetime.now()) + " " + args.timeframe +  " Update Function Completed. " + instrument_symbol + "\n")

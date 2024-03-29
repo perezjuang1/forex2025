@@ -29,16 +29,22 @@ class SubplotAnimation(animation.TimedAnimation):
     def __init__(self):
         fig = plt.figure()
 
-        self.axBase = fig.add_subplot(1, 1, 1)
+        self.axBase = fig.add_subplot(2, 1, 1)        
         #self.RSI = fig.add_subplot(4, 1, 2)
         #self.VOLUM = fig.add_subplot(4, 1, 3)
         #self.STO = fig.add_subplot(4, 1, 4)
+        self.axRegresionBase = fig.add_subplot(2, 1, 2)
 
         self.t = np.linspace(0, 80, 400)
 
         self.axBase.set_xlabel('Date')
         self.axBase.set_ylabel('Price Move' + symbol)
         self.linePrice = Line2D([], [],color='white')
+
+        self.axRegresionBase.set_xlabel('Date')
+        self.axRegresionBase.set_ylabel('Price Move' + symbol)
+        self.regresionlinePrice = Line2D([], [],color='white')
+        self.regresionline = Line2D([], [], color='orange')
 
         self.lineSMA200 = Line2D([], [], color='green')
         self.lineSMA400 = Line2D([], [], color='red')
@@ -65,6 +71,10 @@ class SubplotAnimation(animation.TimedAnimation):
         self.axBase.add_line(self.peaks_min)
         self.axBase.add_line(self.peaks_max)
 
+
+
+        self.axRegresionBase.add_line(self.regresionlinePrice)
+        self.axRegresionBase.add_line(self.regresionline)
 
         #self.VOLUM.set_xlabel('VOLUM')
         #self.VOLUM.set_ylabel('Volumen')
@@ -107,6 +117,7 @@ class SubplotAnimation(animation.TimedAnimation):
 
     def _draw_frame(self, framedata):
         self.axBase.clear
+        self.axRegresionBase.clear
         #self.RSI.clear
         #self.VOLUM.clear
         #self.STO.clear
@@ -116,6 +127,8 @@ class SubplotAnimation(animation.TimedAnimation):
         # SMA
         x = pricedata['bidclose'].index
         self.linePrice.set_data(x, pricedata['bidclose'])
+
+        
         self.lineSMA200.set_data(x, pricedata['ema'])
         self.lineSMA400.set_data(x, pricedata['ema_slow'])
         self.ema_res1.set_data(x, pricedata['ema_res1'])
@@ -140,6 +153,12 @@ class SubplotAnimation(animation.TimedAnimation):
             pricedata.loc[pricedata.peaks_max == 1.0].index, pricedata.bidclose[pricedata.peaks_max == 1.0])
         
         
+
+
+        #Regresion
+        self.regresionlinePrice.set_data(pricedata['x'], pricedata['y'])
+        self.regresionline.set_data(pricedata['x'], pricedata['y_pred'])
+
         # # Plot results
         #self.axPicsLinePriceHigh.set_data(x, pricedata['bidhigh'])
         #self.axPicsLinePriceLow.set_data(x, pricedata['bidlow'])
@@ -180,10 +199,14 @@ class SubplotAnimation(animation.TimedAnimation):
         self.axBase.relim()
         self.axBase.autoscale_view()
 
+        self.axRegresionBase.relim()
+        self.axRegresionBase.autoscale_view()
+
+       
         #self.VOLUM.relim()
         #self.VOLUM.autoscale_view()
 
-        self._drawn_artists = [self.linePrice, self.lineSMA200, self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, self.sellOpen, self.sellbidclose, self.buyOpen, self.buybidclose,self.peaks_min,self.peaks_max,
+        self._drawn_artists = [self.linePrice, self.regresionlinePrice, self.regresionline, self.lineSMA200, self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, self.sellOpen, self.sellbidclose, self.buyOpen, self.buybidclose,self.peaks_min,self.peaks_max,
                                #self.lineRSI_INF, self.lineRSI_SUP, self.lineRSI,self.lineRSI_MED,
                                #self.VOLUMLineVolum, self.VOLUMLinePromedio,#self.VOLUMFast,self.VOLUMLimit,
                                #self.STO_K, self.STO_D, self.sto_LimitSup,self.sto_LImitInf,
@@ -193,7 +216,7 @@ class SubplotAnimation(animation.TimedAnimation):
         return iter(range(self.t.size))
 
     def _init_draw(self):
-        lines = [self.linePrice, self.lineSMA200, self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, self.sellOpen, self.sellbidclose, self.buyOpen, self.buybidclose,self.peaks_min,self.peaks_max,
+        lines = [self.linePrice, self.regresionlinePrice,self.regresionline, self.lineSMA200, self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, self.sellOpen, self.sellbidclose, self.buyOpen, self.buybidclose,self.peaks_min,self.peaks_max,
                  #self.lineRSI_INF, self.lineRSI_SUP, self.lineRSI,self.lineRSI_MED,
                  #self.VOLUMLineVolum, self.VOLUMLinePromedio,#self.VOLUMFast,self.VOLUMLimit,
                  #self.STO_K, self.STO_D, self.sto_LimitSup,self.sto_LImitInf,
