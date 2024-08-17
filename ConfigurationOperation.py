@@ -5,8 +5,8 @@ from pytz import timezone
 from threading import Event
 class ConfigurationOperation:
    
-    userid = "U10D2462640"
-    password = "z7Itu"
+    userid = "U10D2465555"
+    password = "0Bbwj"
     url = "http://www.fxcorporate.com/Hosts.jsp"
     connectiontype = "Demo"
     instrument_symbol = "EUR/USD"
