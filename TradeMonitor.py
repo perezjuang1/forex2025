@@ -164,7 +164,7 @@ class TradeMonitor:
         for indexTimeSup, row in df.iterrows():
                 if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_max'] == 1:
                     for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():
-                        if size >= indexTimeInf + 1:
+                        if size > indexTimeInf + 1:
                             if df.loc[indexTimeInf + 1, 'timeframe'] == timeframe and df.loc[indexTimeInf + 1, 'peaks_max'] == 1:
                                 df.loc[indexTimeInf + 1, 'triggerSell'] = 1
                             if df.loc[indexTimeInf + 1, 'timeframe']  == timeframe_sup: 
