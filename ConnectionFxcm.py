@@ -18,4 +18,7 @@ class RobotConnection:
                 forexConnect = ForexConnect()
                 forexConnect.login(self.args.userid, self.args.password, self.args.url, session_status_callback=self.session_status_changed)
                 return forexConnect
+    
+    def getCorepy(self):
+          return fxcorepy
                 

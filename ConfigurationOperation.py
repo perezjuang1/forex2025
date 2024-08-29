@@ -5,16 +5,16 @@ from pytz import timezone
 from threading import Event
 class ConfigurationOperation:
    
-    userid = "U10D2465555"
-    password = "0Bbwj"
+    userid = "U10D2466076"
+    password = "6Hxco"
     url = "http://www.fxcorporate.com/Hosts.jsp"
     connectiontype = "Demo"
     instrument_symbol = "EUR/USD"
     session = None
     pin = None
-    lots = 1
-    stop = 4
-    limit = 10
+    lots = 5
+    stop = 5
+    limit = 15
     account = None
     timeframe = "m1"  # Available periods :  'm1', 'm5', 'm15', 'm30', 'H1', 'H2', 'H3', 'H4', 'H6', 'H8','D1', 'W1', or 'M1'.
     dateFormat = '%m.%d.%Y %H:%M:%S'

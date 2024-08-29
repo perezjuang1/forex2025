@@ -12,6 +12,7 @@ class TradeMonitor:
         self.timeframe_sup = timeframe_sup
         self.robotconnection = RobotConnection()
         self.connection = self.robotconnection.getConnection()
+        self.corepy = self.robotconnection.getCorepy()
         self.robotPrice = RobotPrice(days, self.instrument, self.timeframe)
 
 
@@ -32,6 +33,36 @@ class TradeMonitor:
                 print("Exception: " + str(e))
                 return existOperation
 
+
+
+    def CloseOperation(self,instrument,BuySell):
+            try:
+                accounts_response_reader = self.connection.get_table_reader(self.connection.ACCOUNTS)
+                accountId = None
+                for account in accounts_response_reader:
+                    accountId = account.account_id
+                print(accountId)            
+                orders_table = self.connection.get_table(self.connection.TRADES)
+                for trade in orders_table:
+                    if trade.instrument == instrument and trade.buy_sell == BuySell:   
+                        buy_sell = self.corepy.Constants.SELL if trade.buy_sell == self.corepy.Constants.BUY else self.corepy.Constants.BUY                
+                        print('Closing ' + str(buy_sell))
+                        if buy_sell != None:
+                            request = self.connection.create_order_request(
+                                order_type=self.corepy.Constants.Orders.TRUE_MARKET_CLOSE,
+                                OFFER_ID=trade.offer_id,
+                                ACCOUNT_ID=accountId,
+                                BUY_SELL=buy_sell,
+                                AMOUNT=trade.amount,
+                                TRADE_ID=trade.trade_id
+                                )
+                            self.connection.send_request_async(request)
+                            print('Request Sended')
+                        print('Closed ' + str(buy_sell))
+                    else:
+                        print('Trade is not the same ' + str(buy_sell) + ' != ' + str(trade.BuySell))
+            except Exception as e:
+                print("Exception: " + str(e))
 
     def createEntryOrder(self,str_buy_sell=None):
         args = self.robotconnection.args
@@ -149,7 +180,7 @@ class TradeMonitor:
                                         AMOUNT=amount,
                                         RATE_STOP=stop,
                                         RATE_LIMIT=limit,)
-                self.connection.send_request(request)
+                self.connection.send_request_async(request)
             except Exception as e:
                 print(e)
 
@@ -159,26 +190,64 @@ class TradeMonitor:
         time.sleep(5)       
         df = self.robotPrice.getPricesConsolidated(instrument=self.instrument, timeframe=timeframe, timeframe_sup=timeframe_sup)
         size = len(df.index)
-        df['triggerSell'] = 0
-        df['triggerBuy'] = 0
+        df['TriggerSell'] = 0
+        df['TriggerBuy'] = 0
+        df['ZoneOperationType'] = ''
+
+        ZoneOperationType = 'NA'        
+        for index, row in df.iterrows():
+              if df.loc[index, 'timeframe'] == timeframe_sup and df.loc[index, 'peaks_max'] == 1:
+                    ZoneOperationType = 'SELL'
+              if df.loc[index, 'timeframe'] == timeframe_sup and df.loc[index, 'peaks_min'] == 1:
+                   ZoneOperationType  = 'BUY'
+              df.loc[index, 'ZoneOperationType'] = ZoneOperationType
+           
+
+
         for indexTimeSup, row in df.iterrows():
                 if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_max'] == 1:
+                    #priceSupOperation = df.loc[indexTimeSup, 'bidclose']
+                    peakcount = 0
                     for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():
-                        if size > indexTimeInf + 1:
-                            if df.loc[indexTimeInf + 1, 'timeframe'] == timeframe and df.loc[indexTimeInf + 1, 'peaks_max'] == 1:
-                                df.loc[indexTimeInf + 1, 'triggerSell'] = 1
-                            if df.loc[indexTimeInf + 1, 'timeframe']  == timeframe_sup: 
-                                break 
+                            if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_max'] == 1 and df.loc[indexTimeInf, 'ZoneOperationType'] == 'SELL':
+                                #priceInfOperation = df.loc[indexTimeInf, 'bidclose']
+                                peakcount = peakcount + 1
+                                if peakcount == 2:    
+                                    #if priceInfOperation < priceSupOperation: 
+                                        df.loc[indexTimeInf, 'TriggerSell'] = 1
+                                        break 
+
+                if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_min'] == 1 :
+                    #priceSupOperation = df.loc[indexTimeSup, 'bidclose']
+                    peakcount = 0
+                    for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():
+                            if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_min'] == 1 and df.loc[indexTimeInf, 'ZoneOperationType'] == 'BUY':
+                                #priceInfOperation = df.loc[indexTimeInf, 'bidclose']                                
+                                peakcount = peakcount + 1
+                                if peakcount == 2:
+                                    #if priceInfOperation > priceSupOperation :
+                                        df.loc[indexTimeInf, 'TriggerBuy'] = 1
+                                        break 
+        
+
+        #Open Operation
+        if df['TriggerSell'][len(df) - 4] == 1 or df['TriggerSell'][len(df) - 5] == 1:
+            if self.existingOperation(instrument=self.instrument, BuySell= "B"):
+                self.CloseOperation(instrument=self.instrument,BuySell = "B")
+        
+            print("	  SELL OPERATION! ")
+            if self.existingOperation(instrument=self.instrument, BuySell= "S")  != True:
+                self.createEntryOrder(str_buy_sell="S")
 
 
-                if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_min'] == 1:
-                    for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():
-                        if size > indexTimeInf + 1:
-                            if df.loc[indexTimeInf + 1, 'timeframe'] == timeframe and df.loc[indexTimeInf + 1, 'peaks_min'] == 1:
-                                df.loc[indexTimeInf + 1, 'triggerBuy'] = 1
-                                
-                            if df.loc[indexTimeInf + 1, 'timeframe']  == timeframe_sup: 
-                                break 
+        if df['TriggerBuy'][len(df) - 4] == 1 or df['TriggerBuy'][len(df) - 5] == 1:
+            if self.existingOperation(instrument=self.instrument, BuySell= "S"):
+                self.CloseOperation(instrument=self.instrument,BuySell = "S")
+        
+            print("	  BUY OPERATION! ")
+            if self.existingOperation(instrument=self.instrument, BuySell= "B")  != True:
+                self.createEntryOrder(str_buy_sell="B")
+
 
         self.robotPrice.savePriceDataFileConsolidated(pricedata=df, timeframe=timeframe, timeframe_sup=timeframe_sup)
 

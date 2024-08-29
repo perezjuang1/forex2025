@@ -49,92 +49,45 @@ class RobotPrice:
                 return pricedata     
         
         def setIndicators(self, df):
-
                 df['value1'] = 1
                 # Find local peaks
-                df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less_equal,order=10)[0]]['value1']
-                df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater_equal,order=10)[0]]['value1']
-
-
-                #Find Price after pic if in correct position
-                df['priceInPositionSell'] = 0
-                df['priceInPositionBuy'] = 0
-                for index, row in df.iterrows():
-                        try:   #and df.loc[index + 5, 'bidclose'] < df.loc[index + 5, 'ema']
-                        #  and df.loc[index + 5, 'bidclose'] > df.loc[index + 5, 'ema']   and 
-                                if ( #df.loc[index, 'MediaTriggerSell'] == 1 #and                 
-                                        df.loc[index, 'peaks_max'] == 1
-                                        #and df.loc[index, 'bidclose'] < df.loc[index, 'ema_res1']
-                                        #and df.loc[index, 'volumEnableOperation'] == 1 
-                                        #and df.loc[index, 'trend_max'] == DOWNWARD_TREND 
-                                        #and df.loc[index, 'trend_min'] == DOWNWARD_TREND
-                                        #and df.loc[index, 'ema'] < df.loc[index, 'ema_slow']
-                                        #and df.loc[index, 'rsi'] < 50
-                                        #and df.loc[index, 'bidclose'] < df.loc[index, 'ema']
-                                        ):  
-                                                #iRV = 0
-                                                #while (iRV <= 5):
-                                                        #iRV = iRV + 1
-                                                        #poscheck = index - iRV
-                                                        #if df.loc[poscheck, 'peaks_max'] == 1:
-                                                        df.loc[index, 'priceInPositionSell'] = 1
-                                if (  #df.loc[index, 'MediaTriggerBuy'] == 1 #and                  
-                                        df.loc[index, 'peaks_min'] == 1
-                                        # and  df.loc[index, 'bidclose'] > df.loc[index, 'ema_res1'] 
-                                        #and df.loc[index, 'volumEnableOperation'] == 1 
-                                        #and df.loc[index, 'trend_max'] == UPWARD_TREND 
-                                        #and df.loc[index, 'trend_min'] == UPWARD_TREND
-                                        #and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']
-                                        #and df.loc[index, 'rsi'] > 50
-                                        #and df.loc[index, 'bidclose'] > df.loc[index, 'ema']
-                                        ): 
-                                                #iRV = 0
-                                                #while (iRV <= 5):
-                                                #    iRV = iRV + 1
-                                                #    poscheck = index - iRV
-                                                #    if df.loc[poscheck, 'peaks_min'] == 1:
-                                                        df.loc[index, 'priceInPositionBuy'] = 1
-                        except:
-                                print("peaks: In Validation")
-
-
+                df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=5)[0]]['value1']
+                df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=5)[0]]['value1']
+                df['ema'] = df['bidclose'].ewm(span=10).mean()
+                df['ema_slow'] = df['bidclose'].ewm(span=50).mean()
 
                 # ***********************************************************
                 # * Estrategy  SELL
                 # ***********************************************************
 
-                df['sell'] = np.where( (df['priceInPositionSell'] == 1) , 1, 0)
-                        
+                df['sell'] = 0
                 # Close Strategy Operation Sell
                 operationActive = False
                 for index, row in df.iterrows():
-                        if df.loc[index, 'sell'] == 1:
+                        if df.loc[index, 'peaks_max'] == 1:
                                 operationActive = True
                         if operationActive == True:
                                 df.loc[index, 'sell'] = 1
                         if df.loc[index, 'peaks_min'] == 1:
+                                df.loc[index, 'sell'] = -1
                                 operationActive = False
-
-                #Close Operation
-                df['zone_sell'] = df['sell'].diff()
 
 
                 # ***********************************************************
                 # * Estrategy  BUY
                 # ***********************************************************
-                df['buy'] = np.where( (df['priceInPositionBuy'] == 1) , 1, 0)
 
+                df['buy'] = 0
                 # Close Strategy Operation Sell
                 operationActive = False
                 for index, row in df.iterrows():
-                        if df.loc[index, 'buy'] == 1:
+                        if df.loc[index, 'peaks_min'] == 1:
                                 operationActive = True
                         if operationActive == True:
                                 df.loc[index, 'buy'] = 1
                         if (df.loc[index, 'peaks_max'] == 1):
+                                df.loc[index, 'buy'] = -1
                                 operationActive = False
-                # Close  Operation
-                df['zone_buy'] = df['buy'].diff()
 
                 return df
         
@@ -146,7 +99,7 @@ class RobotPrice:
                         
                         history = connection.get_history(instrument, timeframe, date_from, date_to)
                         current_unit, _ = connection.parse_timeframe(timeframe)
-                        print("Price Data Received..." + str(current_unit) + " " + str(timeframe) + " " + str(instrument))
+                        print("Price Data Received..." + str(current_unit) + " " + str(timeframe) + " " + str(instrument) + " " + str(europe_London_datetime))
 
                         pricedata = pd.DataFrame(history, columns = ["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
 

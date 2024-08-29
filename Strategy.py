@@ -18,7 +18,7 @@ def create_plotter(instrument,timeframe,timeframe_sup,days):
 
 if __name__ == "__main__":
         instrument="EUR/USD"
-        timeframe = "m5"
+        timeframe = "m1"
         timeframe_sup = "m30"
         days = 5
 

@@ -27,53 +27,63 @@ class SubplotAnimation(animation.TimedAnimation):
         self.axBase.set_xlabel('Date')
         self.axBase.set_ylabel('Price Move' + instrument)
 
-        self.linePrice, = self.axBase.plot([], [], ':', color='gray')
-        self.linePrice_Inf, =  self.axBase.plot([], [], color='green',label='Price Time Frame Inf')
-        self.linePrice_Sup, =  self.axBase.plot([], [], '--', color='red',label='Price Time Frame Sup')
-
-        self.sellOpen_Inf, = self.axBase.plot([], [], 'v', color='green')
-        self.sellbidclose_Inf, = self.axBase.plot([], [], '.', color='green')
-        self.buyOpen_Inf, = self.axBase.plot([], [], '^', color='red')
-        self.buybidclose_Inf, = self.axBase.plot([], [], '.', color='red')
-        self.peaks_min_Inf, = self.axBase.plot([], [], '--', color='orange')
-        self.peaks_max_Inf, = self.axBase.plot([], [], '--', color='orange')
+        self.linePrice, = self.axBase.plot([], [], linestyle='dotted', color='gray', label='Price')
+        #self.linePrice_Inf, =  self.axBase.plot([], [], marker = '.', color='green', label='Price Time Frame Inf')
+        #self.linePrice_Sup, =  self.axBase.plot([], [], marker = '.', color='red',label='Price Time Frame Sup')
 
 
-        self.sellOpen_Sup, = self.axBase.plot([], [], 'v', color='blue')
-        self.sellbidclose_Sup, = self.axBase.plot([], [], 'o', color='blue')
-        self.buyOpen_Sup, = self.axBase.plot([], [], '^', color='pink')
-        self.buybidclose_Sup, = self.axBase.plot([], [], 'o', color='pink')
-        self.peaks_min_Sup, = self.axBase.plot([], [], '--', color='gray')
-        self.peaks_max_Sup, = self.axBase.plot([], [], '--', color='gray')
+
+        self.peaks_min_Inf, = self.axBase.plot([], [],  linestyle='dotted',  marker =  '^' , color='green')
+        self.peaks_max_Inf, = self.axBase.plot([], [],  linestyle='dotted', marker = 'v', color='blue')
+        self.peaks_min_Sup, = self.axBase.plot([], [], linestyle='-', marker =  '^', color='white')
+        self.peaks_max_Sup, = self.axBase.plot([], [],linestyle='-',  marker = 'v', color='white')
+
+
+        self.sellOpen_Inf, = self.axBase.plot([], [], ',', color='green')
+        self.sellClose_Inf, = self.axBase.plot([], [], ',', color='green')        
+        self.buyOpen_Inf, = self.axBase.plot([], [], ',', color='red')
+        self.buyClose_Inf, = self.axBase.plot([], [], ',', color='red')
+
+
+
+        self.sellOpen_Sup, = self.axBase.plot([], [], ',', color='green')
+        self.sellClose_Sup, = self.axBase.plot([], [], ',', color='green')
+
+        self.buyOpen_Sup, = self.axBase.plot([], [], ',', color='red')
+        self.buyClose_Sup, = self.axBase.plot([], [], ',', color='red')
+
+
+        self.TriggerBuy, = self.axBase.plot([], [], '^', color='orange')
+        self.TriggerSell, = self.axBase.plot([], [], 'v', color='orange')
+
+
+
 
 
 
         self.axBase.add_line(self.linePrice)
-        self.axBase.add_line(self.linePrice_Sup)
-        self.axBase.add_line(self.linePrice_Inf)
-        #self.axBase.add_line(self.lineSMA200)
-        #self.axBase.add_line(self.lineSMA400)
-        #self.axBase.add_line(self.ema_res1)
-        #self.axBase.add_line(self.ema_res2)
-        #self.axBase.add_line(self.ema_res3)
+        #self.axBase.add_line(self.linePrice_Sup)
+        #self.axBase.add_line(self.linePrice_Inf)
+
 
         self.axBase.add_line(self.sellOpen_Inf)
-        self.axBase.add_line(self.sellbidclose_Inf)
+        self.axBase.add_line(self.sellClose_Inf)
         self.axBase.add_line(self.buyOpen_Inf)
-        self.axBase.add_line(self.buybidclose_Inf)
+        self.axBase.add_line(self.buyClose_Inf)
         self.axBase.add_line(self.peaks_min_Inf)
         self.axBase.add_line(self.peaks_max_Inf)
 
 
 
         self.axBase.add_line(self.sellOpen_Sup)
-        self.axBase.add_line(self.sellbidclose_Sup)
-        self.axBase.add_line(self.buyOpen_Sup)
-        self.axBase.add_line(self.buybidclose_Sup)
+        self.axBase.add_line(self.sellClose_Sup)
+
+        self.axBase.add_line(self.buyClose_Sup)
         self.axBase.add_line(self.peaks_min_Sup)
         self.axBase.add_line(self.peaks_max_Sup)
-
-
+        
+        self.axBase.add_line(self.TriggerBuy)
+        self.axBase.add_line(self.TriggerSell)
         #self.VOLUM.set_xlabel('VOLUM')
         #self.VOLUM.set_ylabel('Volumen')
         #self.VOLUMLineVolum = Line2D([], [], color='blue')
@@ -125,10 +135,10 @@ class SubplotAnimation(animation.TimedAnimation):
         self.linePrice.set_data(pricedataConsolidated['date'].index, pricedataConsolidated['bidclose'])
 
         filtered_inf = pricedataConsolidated[pricedataConsolidated['timeframe'] == self.timeframe]
-        self.linePrice_Inf.set_data(filtered_inf['date'].index, filtered_inf['bidclose'])
+        #self.linePrice_Inf.set_data(filtered_inf['date'].index, filtered_inf['bidclose'])
 
         filtered_sup = pricedataConsolidated[pricedataConsolidated['timeframe'] == self.timeframe_sup]
-        self.linePrice_Sup.set_data(filtered_sup['date'].index, filtered_sup['bidclose'])
+        #self.linePrice_Sup.set_data(filtered_sup['date'].index, filtered_sup['bidclose'])
 
 
         self.axBase.relim()
@@ -141,21 +151,35 @@ class SubplotAnimation(animation.TimedAnimation):
         #self.ema_res2.set_data(x, pricedata['ema_res2'])
         #self.ema_res2.set_data(x, pricedata['ema_res3'])
 
-        self.sellOpen_Inf.set_data(filtered_inf.loc[filtered_inf.zone_sell == 1.0].index, filtered_inf.bidclose[filtered_inf.zone_sell == 1.0])
-        self.sellbidclose_Inf.set_data(filtered_inf.loc[filtered_inf.zone_sell == -1.0].index, filtered_inf.bidclose[filtered_inf.zone_sell == -1.0])
-        self.buyOpen_Inf.set_data(filtered_inf.loc[filtered_inf.zone_buy == 1.0].index, filtered_inf.bidclose[filtered_inf.zone_buy == 1.0])
-        self.buybidclose_Inf.set_data(filtered_inf.loc[filtered_inf.zone_buy == -1.0].index, filtered_inf.bidclose[filtered_inf.zone_buy == -1.0])
+
+        #Draw Inferior Price
+        self.sellOpen_Inf.set_data(filtered_inf.loc[filtered_inf.sell == 1.0].index, filtered_inf.bidclose[filtered_inf.sell == 1.0])
+        self.sellClose_Inf.set_data(filtered_inf.loc[filtered_inf.sell == -1.0].index, filtered_inf.bidclose[filtered_inf.sell == -1.0])
+
+        self.buyOpen_Inf.set_data(filtered_inf.loc[filtered_inf.buy == 1.0].index, filtered_inf.bidclose[filtered_inf.buy == 1.0])
+        self.buyClose_Inf.set_data(filtered_inf.loc[filtered_inf.buy == -1.0].index, filtered_inf.bidclose[filtered_inf.buy == -1.0])
+
         self.peaks_min_Inf.set_data(filtered_inf.loc[filtered_inf.peaks_min == 1.0].index, filtered_inf.bidclose[filtered_inf.peaks_min == 1.0])
         self.peaks_max_Inf.set_data(filtered_inf.loc[filtered_inf.peaks_max == 1.0].index, filtered_inf.bidclose[filtered_inf.peaks_max == 1.0])
         
         
-        self.sellOpen_Sup.set_data(filtered_sup.loc[filtered_sup.zone_sell == 1.0].index, filtered_sup.bidclose[filtered_sup.zone_sell == 1.0])
-        self.sellbidclose_Sup.set_data(filtered_sup.loc[filtered_sup.zone_sell == -1.0].index, filtered_sup.bidclose[filtered_sup.zone_sell == -1.0])
-        self.buyOpen_Sup.set_data(filtered_sup.loc[filtered_sup.zone_buy == 1.0].index, filtered_sup.bidclose[filtered_sup.zone_buy == 1.0])
-        self.buybidclose_Sup.set_data(filtered_sup.loc[filtered_sup.zone_buy == -1.0].index, filtered_sup.bidclose[filtered_sup.zone_buy == -1.0])
+
+
+
+        #Draw Superior Price
+        self.sellOpen_Sup.set_data(filtered_sup.loc[filtered_sup.sell == 1.0].index, filtered_sup.bidclose[filtered_sup.sell == 1.0])
+        self.sellClose_Sup.set_data(filtered_sup.loc[filtered_sup.sell == -1.0].index, filtered_sup.bidclose[filtered_sup.sell == -1.0])
+
+
+        self.buyOpen_Sup.set_data(filtered_sup.loc[filtered_sup.buy == 1.0].index, filtered_sup.bidclose[filtered_sup.buy == 1.0])
+        self.buyClose_Sup.set_data(filtered_sup.loc[filtered_sup.buy == -1.0].index, filtered_sup.bidclose[filtered_sup.buy == -1.0])
+
         self.peaks_min_Sup.set_data(filtered_sup.loc[filtered_sup.peaks_min == 1.0].index, filtered_sup.bidclose[filtered_sup.peaks_min == 1.0])
         self.peaks_max_Sup.set_data(filtered_sup.loc[filtered_sup.peaks_max == 1.0].index, filtered_sup.bidclose[filtered_sup.peaks_max == 1.0])
 
+
+        self.TriggerSell.set_data(filtered_inf.loc[filtered_inf.TriggerSell == 1.0].index, filtered_inf.bidclose[filtered_inf.TriggerSell == 1.0])
+        self.TriggerBuy.set_data(filtered_inf.loc[filtered_inf.TriggerBuy == 1.0].index, filtered_inf.bidclose[filtered_inf.TriggerBuy == 1.0])
 
         # # Plot results
         #self.axPicsLinePriceHigh.set_data(x, pricedata['bidhigh'])
@@ -201,17 +225,18 @@ class SubplotAnimation(animation.TimedAnimation):
         #self.VOLUM.autoscale_view()
 
         self._drawn_artists = [self.linePrice,# self.lineSMA200, self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, 
-                               self.linePrice_Sup,
-                               self.linePrice_Inf,
+                               #self.linePrice_Sup,
+                               #self.linePrice_Inf,
 
 
-                               self.sellOpen_Inf, self.sellbidclose_Inf, self.buyOpen_Inf, self.buybidclose_Inf,self.peaks_min_Inf,self.peaks_max_Inf,
+                               self.sellOpen_Inf, self.sellClose_Inf, self.buyOpen_Inf, self.buyClose_Inf,self.peaks_min_Inf,self.peaks_max_Inf,
                                #self.lineRSI_INF, self.lineRSI_SUP, self.lineRSI,self.lineRSI_MED,
                                #self.VOLUMLineVolum, self.VOLUMLinePromedio,#self.VOLUMFast,self.VOLUMLimit,
                                #self.STO_K, self.STO_D, self.sto_LimitSup,self.sto_LImitInf,
 
-                               self.sellOpen_Sup, self.sellbidclose_Sup, self.buyOpen_Sup, self.buybidclose_Sup, self.peaks_min_Sup, self.peaks_max_Sup,
-
+                               self.sellOpen_Sup, self.sellClose_Sup, self.buyOpen_Sup, self.buyClose_Sup, self.peaks_min_Sup, self.peaks_max_Sup,
+                                self.TriggerBuy, 
+                                self.TriggerSell
                                ]
         plt.pause(2)
         
@@ -220,8 +245,8 @@ class SubplotAnimation(animation.TimedAnimation):
 
     def _init_draw(self):
         lines = [self.linePrice, #self.lineSMA200, self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, 
-                 self.linePrice_Sup,
-                 self.linePrice_Inf,
+                 #self.linePrice_Sup,
+                 #self.linePrice_Inf,
                  #self.sellOpen, self.sellbidclose, self.buyOpen, self.buybidclose,self.peaks_min,self.peaks_max,
                  #self.lineRSI_INF, self.lineRSI_SUP, self.lineRSI,self.lineRSI_MED,
                  #self.VOLUMLineVolum, self.VOLUMLinePromedio,#self.VOLUMFast,self.VOLUMLimit,
@@ -229,12 +254,13 @@ class SubplotAnimation(animation.TimedAnimation):
 
 
                                 self.sellOpen_Sup,
-                                self.sellbidclose_Sup,
+                                self.sellClose_Sup,
                                 self.buyOpen_Sup,
-                                self.buybidclose_Sup,
+                                self.buyClose_Sup,
                                 self.peaks_min_Sup,
                                 self.peaks_max_Sup,
-
+                                self.TriggerBuy, 
+                                self.TriggerSell
                  ]
         for l in lines:
             l.set_data([], [])
