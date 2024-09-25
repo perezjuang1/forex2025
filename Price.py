@@ -41,10 +41,11 @@ class RobotPrice:
         def readPriceDataFileConsolidated(self, timeframe, timeframe_sup):
                 return pd.read_csv(self.instrument.replace("/", "_") + '_' + timeframe + "_" + timeframe_sup + ".csv")
 
-        def getPricesConsolidated(self, instrument, timeframe, timeframe_sup):
+        def getPricesConsolidated(self, instrument, timeframe, timeframe_sup,timeframe_sup2):
                 pricedata_inf = self.readData(instrument, timeframe)
                 pricedata_sup = self.readData(instrument, timeframe_sup)        
-                pricedata = pd.concat([pricedata_sup, pricedata_inf], ignore_index=True)
+                pricedata_sup2 = self.readData(instrument, timeframe_sup2)
+                pricedata = pd.concat([pricedata_sup2 , pricedata_sup, pricedata_inf], ignore_index=True)
                 pricedata = pricedata.sort_values(by='date').reset_index(drop=True)
                 return pricedata     
         
@@ -68,6 +69,8 @@ class RobotPrice:
                                 operationActive = True
                         if operationActive == True:
                                 df.loc[index, 'sell'] = 1
+
+                                
                         if df.loc[index, 'peaks_min'] == 1:
                                 df.loc[index, 'sell'] = -1
                                 operationActive = False

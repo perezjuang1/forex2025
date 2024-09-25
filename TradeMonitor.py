@@ -6,10 +6,11 @@ from ConnectionFxcm import RobotConnection
 from Price import RobotPrice
 
 class TradeMonitor:
-    def __init__(self,instrument,timeframe,timeframe_sup,days):
+    def __init__(self,instrument,timeframe,timeframe_sup,timeframe_sup2,days):
         self.timeframe = timeframe
         self.instrument = instrument
         self.timeframe_sup = timeframe_sup
+        self.timeframe_sup2 = timeframe_sup2
         self.robotconnection = RobotConnection()
         self.connection = self.robotconnection.getConnection()
         self.corepy = self.robotconnection.getCorepy()
@@ -44,6 +45,7 @@ class TradeMonitor:
                 print(accountId)            
                 orders_table = self.connection.get_table(self.connection.TRADES)
                 for trade in orders_table:
+                    buy_sell = ''
                     if trade.instrument == instrument and trade.buy_sell == BuySell:   
                         buy_sell = self.corepy.Constants.SELL if trade.buy_sell == self.corepy.Constants.BUY else self.corepy.Constants.BUY                
                         print('Closing ' + str(buy_sell))
@@ -186,52 +188,68 @@ class TradeMonitor:
 
 
 
-    def operationDetection(self,timeframe,timeframe_sup): 
+    def operationDetection(self,timeframe,timeframe_sup,timeframe_sup2): 
         time.sleep(5)       
-        df = self.robotPrice.getPricesConsolidated(instrument=self.instrument, timeframe=timeframe, timeframe_sup=timeframe_sup)
+        df = self.robotPrice.getPricesConsolidated(instrument=self.instrument, timeframe=timeframe, timeframe_sup=timeframe_sup,timeframe_sup2=timeframe_sup2)
         size = len(df.index)
         df['TriggerSell'] = 0
         df['TriggerBuy'] = 0
-        df['ZoneOperationType'] = ''
-
-        ZoneOperationType = 'NA'        
-        for index, row in df.iterrows():
-              if df.loc[index, 'timeframe'] == timeframe_sup and df.loc[index, 'peaks_max'] == 1:
-                    ZoneOperationType = 'SELL'
-              if df.loc[index, 'timeframe'] == timeframe_sup and df.loc[index, 'peaks_min'] == 1:
-                   ZoneOperationType  = 'BUY'
-              df.loc[index, 'ZoneOperationType'] = ZoneOperationType
-           
-
-
-        for indexTimeSup, row in df.iterrows():
-                if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_max'] == 1:
-                    #priceSupOperation = df.loc[indexTimeSup, 'bidclose']
+        #m30
+        for indexTimeSup2, row in df.iterrows():
+                
+                if df.loc[indexTimeSup2, 'timeframe'] == timeframe_sup2 and df.loc[indexTimeSup2, 'peaks_max'] == 1: 
                     peakcount = 0
-                    for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():
-                            if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_max'] == 1 and df.loc[indexTimeInf, 'ZoneOperationType'] == 'SELL':
-                                #priceInfOperation = df.loc[indexTimeInf, 'bidclose']
-                                peakcount = peakcount + 1
-                                if peakcount == 2:    
-                                    #if priceInfOperation < priceSupOperation: 
-                                        df.loc[indexTimeInf, 'TriggerSell'] = 1
-                                        break 
+                    #m15
+                    for indexTimeSup, row in  df.iloc[indexTimeSup2:].iterrows():
+                        if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_max'] == 1:
 
-                if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_min'] == 1 :
-                    #priceSupOperation = df.loc[indexTimeSup, 'bidclose']
+                            #m5
+                            for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():
+                                    if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_max'] == 1 :
+                                        peakcount = peakcount + 1
+                                        if peakcount == 1:    
+                                                df.loc[indexTimeInf, 'TriggerSell'] = 1
+                                                break 
+
+
+                if df.loc[indexTimeSup2, 'timeframe'] == timeframe_sup2 and df.loc[indexTimeSup2, 'peaks_min'] == 1:                                  
                     peakcount = 0
-                    for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():
-                            if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_min'] == 1 and df.loc[indexTimeInf, 'ZoneOperationType'] == 'BUY':
-                                #priceInfOperation = df.loc[indexTimeInf, 'bidclose']                                
-                                peakcount = peakcount + 1
-                                if peakcount == 2:
-                                    #if priceInfOperation > priceSupOperation :
-                                        df.loc[indexTimeInf, 'TriggerBuy'] = 1
-                                        break 
+                    #m15
+                    for indexTimeSup, row in  df.iloc[indexTimeSup2:].iterrows():
+                            if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_min'] == 1 :
+                               
+                                #m5
+                                for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():  
+                                    if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_min'] == 1 :
+                                        peakcount = peakcount + 1
+                                        if peakcount == 1:
+                                                df.loc[indexTimeInf, 'TriggerBuy'] = 1
+                                                break 
         
 
+
+
+
+
+
+
+
+
         #Open Operation
-        if df['TriggerSell'][len(df) - 4] == 1 or df['TriggerSell'][len(df) - 5] == 1:
+
+
+        TriggerSell = False
+        TriggerBuy = False
+        for index, row in df.tail(6).iterrows():
+             if df.loc[index, 'TriggerSell']  == 1:
+                          TriggerSell = True
+                          df.loc[index, 'TriggerSell'].to_csv("selloperacion.csv")
+             if df.loc[index, 'TriggerBuy']  == 1:
+                          TriggerBuy = True
+                          df.loc[index, 'TriggerBuy'].to_csv("buyperacion.csv")
+             
+
+        if TriggerSell == True:
             if self.existingOperation(instrument=self.instrument, BuySell= "B"):
                 self.CloseOperation(instrument=self.instrument,BuySell = "B")
         
@@ -240,7 +258,7 @@ class TradeMonitor:
                 self.createEntryOrder(str_buy_sell="S")
 
 
-        if df['TriggerBuy'][len(df) - 4] == 1 or df['TriggerBuy'][len(df) - 5] == 1:
+        if TriggerBuy == True:
             if self.existingOperation(instrument=self.instrument, BuySell= "S"):
                 self.CloseOperation(instrument=self.instrument,BuySell = "S")
         
@@ -253,24 +271,24 @@ class TradeMonitor:
 
 
     def startMonitor(self):    
-        self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup)        
+        self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup,timeframe_sup2=self.timeframe_sup2)        
         while True:            
             currenttime = dt.datetime.now()  
             if self.timeframe == "m1" and currenttime.second == 0:
-                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup)    
+                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup,timeframe_sup2=self.timeframe_sup2)    
                 time.sleep(1)                    
             elif self.timeframe == "m5" and currenttime.second == 0 and currenttime.minute % 5 == 0:
-                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup)
+                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup,timeframe_sup2=self.timeframe_sup2)
                 time.sleep(240)
             elif self.timeframe == "m15" and currenttime.second == 0 and currenttime.minute % 15 == 0:
 
-                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup)
+                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup,timeframe_sup2=self.timeframe_sup2)
                 time.sleep(840)
             elif self.timeframe == "m30" and currenttime.second == 0 and currenttime.minute % 30 == 0:
 
-                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup)
+                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup,timeframe_sup2=self.timeframe_sup2)
                 time.sleep(1740)
             elif self.timeframe == "H1" and currenttime.second == 0 and currenttime.minute == 0:
-                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup)
+                self.operationDetection( timeframe=self.timeframe, timeframe_sup=self.timeframe_sup,timeframe_sup2=self.timeframe_sup2)
                 time.sleep(3540)
             time.sleep(1)
