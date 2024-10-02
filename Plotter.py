@@ -31,8 +31,8 @@ class SubplotAnimation(animation.TimedAnimation):
         self.linePrice, = self.axBase.plot([], [], linestyle='dotted', color='gray', label='Price')
         #self.linePrice_Inf, =  self.axBase.plot([], [], marker = '.', color='green', label='Price Time Frame Inf')
         #self.linePrice_Sup, =  self.axBase.plot([], [], marker = '.', color='red',label='Price Time Frame Sup')
-        self.lineEMA1, = self.axBase.plot([], [], color='gray', label='EMA')
-        self.lineEMA2, = self.axBase.plot([], [], color='gray', label='EMA')
+        self.lineEMA1, = self.axBase.plot([], [], linestyle='dotted', color='pink', label='moving_avg')   #self.axBase.plot([], [], color='orange', label='moving_avg')
+        #self.lineEMA2, = self.axBase.plot([], [], color='gray', label='EMA')
 
 
         self.peaks_min_Inf, = self.axBase.plot([], [],  linestyle='dotted',  marker =  '^' , color='green')
@@ -68,7 +68,7 @@ class SubplotAnimation(animation.TimedAnimation):
         #self.axBase.add_line(self.linePrice_Sup)
         #self.axBase.add_line(self.linePrice_Inf)
         self.axBase.add_line(self.lineEMA1)
-        self.axBase.add_line(self.lineEMA2)
+        #self.axBase.add_line(self.lineEMA2)
 
         self.axBase.add_line(self.sellOpen_Inf)
         self.axBase.add_line(self.sellClose_Inf)
@@ -170,7 +170,7 @@ class SubplotAnimation(animation.TimedAnimation):
         self.peaks_max_Inf.set_data(filtered_inf.loc[filtered_inf.peaks_max == 1.0].index, filtered_inf.bidclose[filtered_inf.peaks_max == 1.0])
         
         #EMA
-        #self.lineEMA1.set_data(filtered_inf['date'].index, filtered_inf['ema'])
+        self.lineEMA1.set_data(pricedataConsolidated['date'].index, pricedataConsolidated['moving_avg'])
         #self.lineEMA2.set_data(filtered_inf['date'].index, filtered_inf['ema_slow'])
 
 
@@ -238,7 +238,7 @@ class SubplotAnimation(animation.TimedAnimation):
         self.axBase.relim()
         self.axBase.autoscale_view()
 
-        self._drawn_artists = [self.linePrice, self.lineEMA1,  self.lineEMA2,#self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, 
+        self._drawn_artists = [self.linePrice, self.lineEMA1, # self.lineEMA2,#self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, 
                                #self.linePrice_Sup,
                                #self.linePrice_Inf,
               
@@ -259,7 +259,7 @@ class SubplotAnimation(animation.TimedAnimation):
         return iter(range(self.t.size))
 
     def _init_draw(self):
-        lines = [self.linePrice, self.lineEMA1, self.lineEMA2, # self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, 
+        lines = [self.linePrice, self.lineEMA1, #self.lineEMA2, # self.lineSMA400, self.ema_res1, self.ema_res2, self.ema_res3, 
                  #self.linePrice_Sup,
                  #self.linePrice_Inf,
                  #self.sellOpen, self.sellbidclose, self.buyOpen, self.buybidclose,self.peaks_min,self.peaks_max,

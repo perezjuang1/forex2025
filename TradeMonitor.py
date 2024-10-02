@@ -1,6 +1,8 @@
 import datetime as dt
 import time
 
+import numpy as np
+
 
 from ConnectionFxcm import RobotConnection
 from Price import RobotPrice
@@ -191,7 +193,26 @@ class TradeMonitor:
     def operationDetection(self,timeframe,timeframe_sup,timeframe_sup2): 
         time.sleep(5)       
         df = self.robotPrice.getPricesConsolidated(instrument=self.instrument, timeframe=timeframe, timeframe_sup=timeframe_sup,timeframe_sup2=timeframe_sup2)
-        size = len(df.index)
+
+        # Generar una columna de promedios móviles para suavizar la serie temporal
+        df['moving_avg'] = df['bidclose'].rolling(window=5).mean()  # Ajusta el tamaño de la ventana según sea necesario
+
+        # Inicializar una columna para identificar cambios de tendencia
+        df['trend_change'] = 0
+
+        # Detectar cambios de tendencia basado en los picos
+        for i in range(1, len(df)):
+                # Verificar si hay un pico máximo y si la media móvil está aumentando
+                if not np.isnan(df['peaks_max'].iloc[i]) and df['moving_avg'].iloc[i] > df['moving_avg'].iloc[i - 1]:
+                        df.loc[i, 'trend_change'] = 1  # Tendencia alcista
+
+                # Verificar si hay un pico mínimo y si la media móvil está disminuyendo
+                elif not np.isnan(df['peaks_min'].iloc[i]) and df['moving_avg'].iloc[i] < df['moving_avg'].iloc[i - 1]:
+                        df.loc[i, 'trend_change'] = -1  # Tendencia bajista
+
+
+
+
         df['TriggerSell'] = 0
         df['TriggerBuy'] = 0
         #m30
@@ -206,25 +227,36 @@ class TradeMonitor:
                             #m5
                             for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():
                                     if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_max'] == 1 :
-                                        peakcount = peakcount + 1
-                                        if peakcount == 1:    
-                                                df.loc[indexTimeInf, 'TriggerSell'] = 1
-                                                break 
-
+                                        peakcount = peakcount + 1   
+                                        if peakcount == 1:
+                                            #Trend Change
+                                            for indexTrend, row in df.iloc[indexTimeInf:].iterrows():
+                                                if df.loc[indexTrend, 'timeframe'] == timeframe and df.loc[indexTrend, 'trend_change'] == -1:
+                                                 
+                                                    df.loc[indexTimeInf, 'TriggerSell'] = 1
+                                                    break 
+                                        
+                                        
+                                        
 
                 if df.loc[indexTimeSup2, 'timeframe'] == timeframe_sup2 and df.loc[indexTimeSup2, 'peaks_min'] == 1:                                  
                     peakcount = 0
+
                     #m15
                     for indexTimeSup, row in  df.iloc[indexTimeSup2:].iterrows():
                             if df.loc[indexTimeSup, 'timeframe'] == timeframe_sup and df.loc[indexTimeSup, 'peaks_min'] == 1 :
                                
                                 #m5
                                 for indexTimeInf, row in df.iloc[indexTimeSup:].iterrows():  
-                                    if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_min'] == 1 :
-                                        peakcount = peakcount + 1
-                                        if peakcount == 1:
-                                                df.loc[indexTimeInf, 'TriggerBuy'] = 1
-                                                break 
+                                    if df.loc[indexTimeInf, 'timeframe'] == timeframe and df.loc[indexTimeInf, 'peaks_min'] == 1 : 
+                                            peakcount = peakcount + 1                                               
+                                            if peakcount == 1: 
+                                            #Trend Change
+                                                for indexTrend, row in df.iloc[indexTimeInf:].iterrows():                                                
+                                                    if df.loc[indexTrend, 'timeframe'] == timeframe and df.loc[indexTrend, 'trend_change'] == 1:  
+                                                                                                             
+                                                                df.loc[indexTimeInf, 'TriggerBuy'] = 1
+                                                                break 
         
 
 
@@ -240,13 +272,13 @@ class TradeMonitor:
 
         TriggerSell = False
         TriggerBuy = False
-        for index, row in df.tail(6).iterrows():
+        for index, row in df.tail(8).iterrows():
              if df.loc[index, 'TriggerSell']  == 1:
                           TriggerSell = True
-                          df.loc[index, 'TriggerSell'].to_csv("selloperacion.csv")
+                          #df.loc[index, 'TriggerSell'].to_csv("selloperacion.csv")
              if df.loc[index, 'TriggerBuy']  == 1:
                           TriggerBuy = True
-                          df.loc[index, 'TriggerBuy'].to_csv("buyperacion.csv")
+                          #df.loc[index, 'TriggerBuy'].to_csv("buyperacion.csv")
              
 
         if TriggerSell == True:
