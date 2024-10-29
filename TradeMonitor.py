@@ -1,11 +1,14 @@
 import datetime as dt
 import time
-
 import numpy as np
-
-
 from ConnectionFxcm import RobotConnection
 from Price import RobotPrice
+
+
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
 
 class TradeMonitor:
     def __init__(self,instrument,timeframe,timeframe_sup,timeframe_sup2,days):
@@ -187,28 +190,101 @@ class TradeMonitor:
                 self.connection.send_request_async(request)
             except Exception as e:
                 print(e)
+    def fractal_up(self,df, n):
+        return df['bidclose'].rolling(n).apply(lambda x: x.argmax() == n//2)
 
-
+    def fractal_down(self,df, n):
+        return df['bidclose'].rolling(n).apply(lambda x: x.argmin() == n//2)
 
     def operationDetection(self,timeframe,timeframe_sup,timeframe_sup2): 
         time.sleep(5)       
         df = self.robotPrice.getPricesConsolidated(instrument=self.instrument, timeframe=timeframe, timeframe_sup=timeframe_sup,timeframe_sup2=timeframe_sup2)
 
         # Generar una columna de promedios móviles para suavizar la serie temporal
-        df['moving_avg'] = df['bidclose'].rolling(window=5).mean()  # Ajusta el tamaño de la ventana según sea necesario
+        df['moving_avg'] = df['bidclose'].ewm(span=5, adjust=False).mean() # Ajusta el tamaño de la ventana según sea necesario
+        # Calcular volatilidad basada en desviación estándar
+        df['volatility'] = df['bidclose'].rolling(window=5).std()
+        # Calcular momentum
+        df['momentum'] = df['bidclose'].diff(periods=3)  # 3-periodos
+        df['acceleration'] = df['momentum'].diff()
+
+
+
+
+#######################################################
+
+        # Calcular los indicadores técnicos
+        df['ema_total'] = df['bidclose'].ewm(span=5, adjust=False).mean()
+        df['rsi'] = 100 - (100 / (1 + (df['bidclose'].diff().clip(lower=0).rolling(15).mean() / df['bidclose'].diff().clip(upper=0).abs().rolling(14).mean())))
+
+        df['macd'] = df['bidclose'].ewm(span=12, adjust=False).mean() - df['bidclose'].ewm(span=26, adjust=False).mean()
+        df['signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+        df['roc'] = ((df['bidclose'] - df['bidclose'].shift(9)) / df['bidclose'].shift(9)) * 100
+        df['volatility'] = df['bidclose'].rolling(3).std()
+        df['fractal_up'] = self.fractal_up(df, 5)
+        df['fractal_down'] = self.fractal_down(df, 5)
+
+        # Detección de cambios de tendencia
+        df['trend_change'] = 0
+        for i in range(1, len(df)):
+            if df['ema_total'].iloc[i] > df['ema_total'].iloc[i-1] and df['rsi'].iloc[i] < 70 and df['macd'].iloc[i] > df['signal'].iloc[i] and df['roc'].iloc[i] > 0:
+                df.loc[i, 'trend_change'] = 1  # Tendencia alcista
+            elif df['ema_total'].iloc[i] < df['ema_total'].iloc[i-1] and df['rsi'].iloc[i] > 30 and df['macd'].iloc[i] < df['signal'].iloc[i] and df['roc'].iloc[i] < 0:
+                df.loc[i, 'trend_change'] = -1  # Tendencia bajista
+
+        # Rupturas de máximos/mínimos recientes
+        df['rolling_max'] = df['bidclose'].rolling(window=10).max()
+        df['rolling_min'] = df['bidclose'].rolling(window=10).min()
+
+        for i in range(1, len(df)):
+            if df['bidclose'].iloc[i] > df['rolling_max'].iloc[i-1]:
+                df.loc[i, 'trend_change'] = 1
+            elif df['bidclose'].iloc[i] < df['rolling_min'].iloc[i-1]:
+                df.loc[i, 'trend_change'] = -1
+
+        # Calcular el ATR y stop-loss dinámico
+        df['atr'] = df['bidhigh'].rolling(window=14).max() - df['bidlow'].rolling(window=14).min()
+        df['stop_loss'] = df['bidclose'] - df['atr'] * 1.5
+
+        # Añadir la columna para operaciones (B1/B0 para compras, S1/S0 para ventas)
+        df['operation'] = ''
+
+        for i in range(1, len(df)):
+            # Señal para abrir una operación de compra (B1)
+            if df['ema_total'].iloc[i] > df['ema_total'].iloc[i-1] and df['rsi'].iloc[i] < 30 and df['macd'].iloc[i] > df['signal'].iloc[i] and df['roc'].iloc[i] > 0:
+                df.loc[i, 'operation'] = 'B1'  # Abrir compra
+            
+            # Señal para cerrar una operación de compra (B0)
+            elif df['ema_total'].iloc[i] < df['ema_total'].iloc[i-1] and df['rsi'].iloc[i] > 70 and df['macd'].iloc[i] < df['signal'].iloc[i] and df['roc'].iloc[i] < 0:
+                df.loc[i, 'operation'] = 'B0'  # Cerrar compra
+            
+            # Señal para abrir una operación de venta (S1)
+            elif df['ema_total'].iloc[i] < df['ema_total'].iloc[i-1] and df['rsi'].iloc[i] > 70 and df['macd'].iloc[i] < df['signal'].iloc[i] and df['roc'].iloc[i] < 0:
+                df.loc[i, 'operation'] = 'S1'  # Abrir venta
+            
+            # Señal para cerrar una operación de venta (S0)
+            elif df['ema_total'].iloc[i] > df['ema_total'].iloc[i-1] and df['rsi'].iloc[i] < 30 and df['macd'].iloc[i] > df['signal'].iloc[i] and df['roc'].iloc[i] > 0:
+                df.loc[i, 'operation'] = 'S0'  # Cerrar venta
+
+
+
+
+#############################################################################################################
+
 
         # Inicializar una columna para identificar cambios de tendencia
         df['trend_change'] = 0
 
         # Detectar cambios de tendencia basado en los picos
         for i in range(1, len(df)):
-                # Verificar si hay un pico máximo y si la media móvil está aumentando
-                if not np.isnan(df['peaks_max'].iloc[i]) and df['moving_avg'].iloc[i] > df['moving_avg'].iloc[i - 1]:
-                        df.loc[i, 'trend_change'] = 1  # Tendencia alcista
+                if df['volatility'].iloc[i] > df['volatility'].mean():  # Volatilidad mayor que el promedio
+                    # Verificar si hay un pico máximo y si la media móvil está aumentando
+                    if not np.isnan(df['peaks_max'].iloc[i]) and df['moving_avg'].iloc[i] > df['moving_avg'].iloc[i - 1] and df['momentum'].iloc[i] > 0 :
+                            df.loc[i, 'trend_change'] = 1  # Tendencia alcista
 
-                # Verificar si hay un pico mínimo y si la media móvil está disminuyendo
-                elif not np.isnan(df['peaks_min'].iloc[i]) and df['moving_avg'].iloc[i] < df['moving_avg'].iloc[i - 1]:
-                        df.loc[i, 'trend_change'] = -1  # Tendencia bajista
+                    # Verificar si hay un pico mínimo y si la media móvil está disminuyendo
+                    elif not np.isnan(df['peaks_min'].iloc[i]) and df['moving_avg'].iloc[i] < df['moving_avg'].iloc[i - 1] and df['momentum'].iloc[i] < 0 :
+                            df.loc[i, 'trend_change'] = -1  # Tendencia bajista
 
 
 

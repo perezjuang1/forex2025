@@ -1,5 +1,6 @@
 import configparser
 import os
+import warnings
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,7 +8,8 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from Price import RobotPrice
 from PriceUtils import PriceUtils
-
+# Ignorar advertencias específicas de Matplotlib
+warnings.filterwarnings("ignore", category=UserWarning, message=".*Matplotlib.*")
 class SubplotAnimation(animation.TimedAnimation):
     def __init__(self,instrument,timeframe,timeframe_sup,timeframe_sup2,days):
         plt.style.use('dark_background')
