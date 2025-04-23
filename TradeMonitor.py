@@ -7,8 +7,7 @@ from Price import RobotPrice
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
+
 
 class TradeMonitor:
     def __init__(self,instrument,timeframe,timeframe_sup,timeframe_sup2,days):
