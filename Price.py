@@ -52,44 +52,35 @@ class RobotPrice:
         def setIndicators(self, df):
                 df['value1'] = 1
                 # Find local peaks
-                df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=5)[0]]['value1']
-                df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=5)[0]]['value1']
+                df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=30)[0]]['value1']
+                df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=30)[0]]['value1']
                 df['ema'] = df['bidclose'].ewm(span=10).mean()
                 df['ema_slow'] = df['bidclose'].ewm(span=50).mean()
 
                 # ***********************************************************
-                # * Estrategy  SELL
+                # * Strategy SELL
                 # ***********************************************************
-
                 df['sell'] = 0
-                # Close Strategy Operation Sell
                 operationActive = False
                 for index, row in df.iterrows():
-                        if df.loc[index, 'peaks_max'] == 1:
+                        if not operationActive and df.loc[index, 'peaks_max'] == 1:
                                 operationActive = True
-                        if operationActive == True:
-                                df.loc[index, 'sell'] = 1
-
-                                
-                        if df.loc[index, 'peaks_min'] == 1:
-                                df.loc[index, 'sell'] = -1
+                                df.loc[index, 'sell'] = 1  # Open sell operation
+                        elif operationActive and df.loc[index, 'peaks_min'] == 1:
+                                df.loc[index, 'sell'] = -1  # Close sell operation
                                 operationActive = False
 
-
                 # ***********************************************************
-                # * Estrategy  BUY
+                # * Strategy BUY
                 # ***********************************************************
-
                 df['buy'] = 0
-                # Close Strategy Operation Sell
                 operationActive = False
                 for index, row in df.iterrows():
-                        if df.loc[index, 'peaks_min'] == 1:
+                        if not operationActive and df.loc[index, 'peaks_min'] == 1:
                                 operationActive = True
-                        if operationActive == True:
-                                df.loc[index, 'buy'] = 1
-                        if (df.loc[index, 'peaks_max'] == 1):
-                                df.loc[index, 'buy'] = -1
+                                df.loc[index, 'buy'] = 1  # Open buy operation
+                        elif operationActive and df.loc[index, 'peaks_max'] == 1:
+                                df.loc[index, 'buy'] = -1  # Close buy operation
                                 operationActive = False
 
                 return df

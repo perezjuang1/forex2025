@@ -47,27 +47,13 @@ class ForexPlotter:
         self.ema_line, = self.ax.plot([], [], linestyle='dotted', color='pink', label='Moving Average')
         
         # Peak markers
-        self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='^', color='green')
-        self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='v', color='blue')
-        self.peaks_min_sup, = self.ax.plot([], [], linestyle='-', marker='^', color='white')
-        self.peaks_max_sup, = self.ax.plot([], [], linestyle='-', marker='v', color='white')
-        self.peaks_min_sup2, = self.ax.plot([], [], linestyle='-', marker='^', color='gray')
-        self.peaks_max_sup2, = self.ax.plot([], [], linestyle='-', marker='v', color='gray')
+        self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='blue', label='Min Peaks')
+        self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='blue', label='Max Peaks')
         
-        # Trade markers
-        self.sell_open_inf, = self.ax.plot([], [], ',', color='green')
-        self.sell_close_inf, = self.ax.plot([], [], ',', color='green')
-        self.buy_open_inf, = self.ax.plot([], [], ',', color='red')
-        self.buy_close_inf, = self.ax.plot([], [], ',', color='red')
-        
-        self.sell_open_sup, = self.ax.plot([], [], ',', color='green')
-        self.sell_close_sup, = self.ax.plot([], [], ',', color='green')
-        self.buy_open_sup, = self.ax.plot([], [], ',', color='red')
-        self.buy_close_sup, = self.ax.plot([], [], ',', color='red')
-        
+       
         # Trigger markers
-        self.trigger_buy, = self.ax.plot([], [], '^', color='orange')
-        self.trigger_sell, = self.ax.plot([], [], 'v', color='orange')
+        self.trigger_buy, = self.ax.plot([], [], '^', color='green', label='Buy Trigger')
+        self.trigger_sell, = self.ax.plot([], [], 'v', color='red', label='Sell Trigger')
         
         # Add legend
         self.ax.legend()
@@ -134,15 +120,6 @@ class ForexPlotter:
             self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1.0].index, 
                                        df_view[df_view['peaks_max'] == 1.0]['bidclose'])
             
-            # Update trade markers
-            self.sell_open_inf.set_data(df_view[df_view['sell'] == 1.0].index, 
-                                       df_view[df_view['sell'] == 1.0]['bidclose'])
-            self.sell_close_inf.set_data(df_view[df_view['sell'] == -1.0].index, 
-                                        df_view[df_view['sell'] == -1.0]['bidclose'])
-            self.buy_open_inf.set_data(df_view[df_view['buy'] == 1.0].index, 
-                                      df_view[df_view['buy'] == 1.0]['bidclose'])
-            self.buy_close_inf.set_data(df_view[df_view['buy'] == -1.0].index, 
-                                       df_view[df_view['buy'] == -1.0]['bidclose'])
             
             # Update trigger markers
             self.trigger_buy.set_data(df_view[df_view['buy'] == 1.0].index, 
@@ -156,8 +133,7 @@ class ForexPlotter:
                 self.ax.autoscale_view()
             
             return [self.price_line, self.ema_line, self.peaks_min_inf, self.peaks_max_inf,
-                    self.sell_open_inf, self.sell_close_inf, self.buy_open_inf, self.buy_close_inf,
-                    self.trigger_buy, self.trigger_sell]
+                   self.trigger_buy, self.trigger_sell]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
