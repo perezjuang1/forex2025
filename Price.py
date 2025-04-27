@@ -55,7 +55,24 @@ class RobotPrice:
                 df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=30)[0]]['value1']
                 df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=30)[0]]['value1']
                 df['ema'] = df['bidclose'].ewm(span=10).mean()
-                df['ema_slow'] = df['bidclose'].ewm(span=50).mean()
+                df['ema_slow'] = df['bidclose'].ewm(span=100).mean()
+
+                # Determine RSI window based on timeframe
+                if self.timeframe in ["m1", "m5"]:
+                        rsi_window = 7  # Shorter window for lower timeframes
+                elif self.timeframe in ["m15", "m30"]:
+                        rsi_window = 14  # Standard window for medium timeframes
+                elif self.timeframe in ["H1", "H4"]:
+                        rsi_window = 21  # Longer window for higher timeframes
+                else:
+                        rsi_window = 14  # Default fallback
+
+                # Add RSI indicator with dynamic window
+                delta = df['bidclose'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=rsi_window).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_window).mean()
+                rs = gain / loss
+                df['rsi'] = 100 - (100 / (1 + rs))
 
                 # ***********************************************************
                 # * Strategy SELL
@@ -63,7 +80,9 @@ class RobotPrice:
                 df['sell'] = 0
                 operationActive = False
                 for index, row in df.iterrows():
-                        if not operationActive and df.loc[index, 'peaks_max'] == 1:
+                        # if not operationActive and df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'ema'] < df.loc[index, 'ema_slow'] and df.loc[index, 'rsi'] > 70:
+                        # if not operationActive and df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'ema'] < df.loc[index, 'ema_slow']:
+                        if not operationActive and df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'rsi'] > 70:
                                 operationActive = True
                                 df.loc[index, 'sell'] = 1  # Open sell operation
                         elif operationActive and df.loc[index, 'peaks_min'] == 1:
@@ -76,7 +95,10 @@ class RobotPrice:
                 df['buy'] = 0
                 operationActive = False
                 for index, row in df.iterrows():
-                        if not operationActive and df.loc[index, 'peaks_min'] == 1:
+                        # if not operationActive and df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'ema'] > df.loc[index, 'ema_slow'] and df.loc[index, 'rsi'] < 30:
+                        # if not operationActive and df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']:
+                        if not operationActive and df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'rsi'] < 30:
+                                  
                                 operationActive = True
                                 df.loc[index, 'buy'] = 1  # Open buy operation
                         elif operationActive and df.loc[index, 'peaks_max'] == 1:
