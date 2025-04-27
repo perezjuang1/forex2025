@@ -49,14 +49,74 @@ class RobotPrice:
                 pricedata = pricedata.sort_values(by='date').reset_index(drop=True)
                 return pricedata     
         
-        def setIndicators(self, df):
-                df['value1'] = 1
-                # Find local peaks
-                df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=30)[0]]['value1']
-                df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=30)[0]]['value1']
-                df['ema'] = df['bidclose'].ewm(span=10).mean()
-                df['ema_slow'] = df['bidclose'].ewm(span=100).mean()
+        def calculate_linear_regression(self, df: pd.DataFrame, column: str) -> pd.Series:
+                """Calculate linear regression for a given column in the DataFrame."""
+                if len(df) > 1:  # Ensure there are enough data points
+                        x = np.arange(len(df))  # Use index as x-axis
+                        y = df[column]
+                        coeffs = np.polyfit(x, y, 1)  # Linear regression (degree 1)
+                        return coeffs[0] * x + coeffs[1]  # y = mx + b
+                return pd.Series(np.nan, index=df.index)  # Return NaN if not enough data
 
+        def calculate_peak_regressions(self, df: pd.DataFrame) -> pd.DataFrame:
+                """Calculate regression lines for the last three peaks (min and max)."""
+                df['peaks_min_regression'] = np.nan
+                df['peaks_max_regression'] = np.nan
+
+                # Get the last three peaks for min and max
+                peaks_min_indices = df[df['peaks_min'] == 1].index[-4:]
+                peaks_max_indices = df[df['peaks_max'] == 1].index[-4:]
+
+                if len(peaks_min_indices) == 4:
+                        # Linear regression for last three min peaks
+                        x_min = peaks_min_indices
+                        y_min = df.loc[peaks_min_indices, 'bidclose']
+                        coeffs_min = np.polyfit(x_min, y_min, 1)  # Linear regression (degree 1)
+                        for i in range(peaks_min_indices[0], peaks_min_indices[-1] + 1):
+                                df.loc[i, 'peaks_min_regression'] = coeffs_min[0] * i + coeffs_min[1]  # y = mx + b
+
+                if len(peaks_max_indices) == 4:
+                        # Linear regression for last three max peaks
+                        x_max = peaks_max_indices
+                        y_max = df.loc[peaks_max_indices, 'bidclose']
+                        coeffs_max = np.polyfit(x_max, y_max, 1)  # Linear regression (degree 1)
+                        for i in range(peaks_max_indices[0], peaks_max_indices[-1] + 1):
+                                df.loc[i, 'peaks_max_regression'] = coeffs_max[0] * i + coeffs_max[1]  # y = mx + b
+
+                return df
+
+        def apply_sell_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
+                """Apply the sell strategy to the DataFrame, considering the 100-period EMA."""
+                df['sell'] = 0
+                operationActive = False
+                for index, row in df.iterrows():
+                        # Only consider sell operations below the 100-period EMA
+                        if not operationActive and df.loc[index, 'peaks_max'] == 1:# 1 and df.loc[index, 'bidclose'] < df.loc[index, 'ema_100']:
+                                operationActive = True
+                                df.loc[index, 'sell'] = 1  # Open sell operation
+                        # Only consider buy operations above the 100-period EMA
+                        elif operationActive and df.loc[index, 'peaks_min'] == 1:# and df.loc[index, 'bidclose'] > df.loc[index, 'ema_100']:
+                                df.loc[index, 'sell'] = -1  # Close sell operation
+                                operationActive = False
+                return df
+
+        def apply_buy_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
+                """Apply the buy strategy to the DataFrame, considering the 100-period EMA."""
+                df['buy'] = 0
+                operationActive = False
+                for index, row in df.iterrows():
+                        # Only consider buy operations above the 100-period EMA
+                        if not operationActive and df.loc[index, 'peaks_min'] == 1:# and df.loc[index, 'bidclose'] > df.loc[index, 'ema_100']:
+                                operationActive = True
+                                df.loc[index, 'buy'] = 1  # Open buy operation
+                        # Only consider sell operations below the 100-period EMA
+                        elif operationActive and df.loc[index, 'peaks_max'] == 1 :#and df.loc[index, 'bidclose'] < df.loc[index, 'ema_100']:
+                                df.loc[index, 'buy'] = -1  # Close buy operation
+                                operationActive = False
+                return df
+
+        def calculate_rsi(self, df: pd.DataFrame, column: str) -> pd.Series:
+                """Calculate the RSI for a given column in the DataFrame."""
                 # Determine RSI window based on timeframe
                 if self.timeframe in ["m1", "m5"]:
                         rsi_window = 7  # Shorter window for lower timeframes
@@ -67,43 +127,35 @@ class RobotPrice:
                 else:
                         rsi_window = 14  # Default fallback
 
-                # Add RSI indicator with dynamic window
-                delta = df['bidclose'].diff()
+                # Calculate RSI
+                delta = df[column].diff()
                 gain = (delta.where(delta > 0, 0)).rolling(window=rsi_window).mean()
                 loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_window).mean()
                 rs = gain / loss
-                df['rsi'] = 100 - (100 / (1 + rs))
+                return 100 - (100 / (1 + rs))
 
-                # ***********************************************************
-                # * Strategy SELL
-                # ***********************************************************
-                df['sell'] = 0
-                operationActive = False
-                for index, row in df.iterrows():
-                        # if not operationActive and df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'ema'] < df.loc[index, 'ema_slow'] and df.loc[index, 'rsi'] > 70:
-                        # if not operationActive and df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'ema'] < df.loc[index, 'ema_slow']:
-                        if not operationActive and df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'rsi'] > 70:
-                                operationActive = True
-                                df.loc[index, 'sell'] = 1  # Open sell operation
-                        elif operationActive and df.loc[index, 'peaks_min'] == 1:
-                                df.loc[index, 'sell'] = -1  # Close sell operation
-                                operationActive = False
+        def setIndicators(self, df):
+                df['value1'] = 1
+                # Find local peaks
+                df['ema'] = df['bidclose'].ewm(span=3).mean()
+                df['ema_slow'] = df['bidclose'].ewm(span=30).mean()
+                df['ema_100'] = df['bidclose'].ewm(span=80).mean()  # Add 100-period EMA
 
-                # ***********************************************************
-                # * Strategy BUY
-                # ***********************************************************
-                df['buy'] = 0
-                operationActive = False
-                for index, row in df.iterrows():
-                        # if not operationActive and df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'ema'] > df.loc[index, 'ema_slow'] and df.loc[index, 'rsi'] < 30:
-                        # if not operationActive and df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'ema'] > df.loc[index, 'ema_slow']:
-                        if not operationActive and df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'rsi'] < 30:
-                                  
-                                operationActive = True
-                                df.loc[index, 'buy'] = 1  # Open buy operation
-                        elif operationActive and df.loc[index, 'peaks_max'] == 1:
-                                df.loc[index, 'buy'] = -1  # Close buy operation
-                                operationActive = False
+                df['peaks_min'] = df.iloc[signal.argrelextrema(df['ema'].values,np.less,order=30)[0]]['value1']
+                df['peaks_max'] = df.iloc[signal.argrelextrema(df['ema'].values,np.greater,order=30)[0]]['value1']
+
+                # Add RSI indicator
+                df['rsi'] = self.calculate_rsi(df, 'bidclose')
+
+                # Add linear regression for bidclose prices
+                df['price_regression'] = self.calculate_linear_regression(df, 'bidclose')
+
+                # Calculate regression lines for peaks
+                df = self.calculate_peak_regressions(df)
+
+                # Apply sell and buy strategies
+                df = self.apply_sell_strategy(df)
+                df = self.apply_buy_strategy(df)
 
                 return df
         

@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from typing import List, Tuple, Optional
-import numpy as np
+
 from dataclasses import dataclass
 import warnings
 import os
@@ -45,16 +45,32 @@ class ForexPlotter:
         # Price lines
         self.price_line, = self.ax.plot([], [], linestyle='dotted', color='gray', label='Price')
         self.ema_line, = self.ax.plot([], [], linestyle='dotted', color='pink', label='Moving Average')
-        
+          # Add 100-period EMA line
+        self.ema_100_line, = self.ax.plot([], [], linestyle='solid', color='purple', label='EMA 100')
+        self.ema_slow_line, = self.ax.plot([], [], linestyle='solid', color='yellow', label='EMA Slow')
+
         # Peak markers
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='blue', label='Min Peaks')
         self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='blue', label='Max Peaks')
-        
        
+
+        # Replace line_min and line_max with regression lines for peaks
+        self.peaks_min_regression_line, = self.ax.plot([], [], linestyle='dashed', color='cyan', label='Min Regression')
+        self.peaks_max_regression_line, = self.ax.plot([], [], linestyle='dashed', color='magenta', label='Max Regression')
+        
+      
         # Trigger markers
         self.trigger_buy, = self.ax.plot([], [], '^', color='green', label='Buy Trigger')
         self.trigger_sell, = self.ax.plot([], [], 'v', color='red', label='Sell Trigger')
         
+   # Add markers for closed buy and sell operations
+        self.trigger_close_buy, = self.ax.plot([], [], '*', color='green', label='Close Buy Trigger')
+        self.trigger_close_sell, = self.ax.plot([], [], '*', color='red', label='Close Sell Trigger')
+
+  # Add price_regression line
+        self.price_regression_line, = self.ax.plot([], [], linestyle='solid', color='orange', label='Price Regression')
+     
+     
         # Add legend
         self.ax.legend()
         
@@ -120,20 +136,44 @@ class ForexPlotter:
             self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1.0].index, 
                                        df_view[df_view['peaks_max'] == 1.0]['bidclose'])
             
-            
             # Update trigger markers
             self.trigger_buy.set_data(df_view[df_view['buy'] == 1.0].index, 
                                      df_view[df_view['buy'] == 1.0]['bidclose'])
             self.trigger_sell.set_data(df_view[df_view['sell'] == 1.0].index, 
                                       df_view[df_view['sell'] == 1.0]['bidclose'])
             
+            # Update peaks_min_regression line
+            self.peaks_min_regression_line.set_data(df_view.index, df_view['peaks_min_regression'])
+
+            # Update peaks_max_regression line
+            self.peaks_max_regression_line.set_data(df_view.index, df_view['peaks_max_regression'])
+            
+            # Update price_regression line
+            self.price_regression_line.set_data(df_view.index, df_view['price_regression'])
+
+            # Update 100-period EMA line
+            self.ema_100_line.set_data(df_view.index, df_view['ema_100'])
+
+            # Update slow EMA line
+            self.ema_slow_line.set_data(df_view.index, df_view['ema_slow'])
+
+            # Update trigger_close_buy markers
+            self.trigger_close_buy.set_data(df_view[df_view['buy'] == -1.0].index, 
+                                            df_view[df_view['buy'] == -1.0]['bidclose'])
+
+            # Update trigger_close_sell markers
+            self.trigger_close_sell.set_data(df_view[df_view['sell'] == -1.0].index, 
+                                             df_view[df_view['sell'] == -1.0]['bidclose'])
+
             # Only autoscale if we're not zoomed in
             if xlim[0] == 0 and xlim[1] == len(self.data):
                 self.ax.relim()
                 self.ax.autoscale_view()
             
-            return [self.price_line, self.ema_line, self.peaks_min_inf, self.peaks_max_inf,
-                   self.trigger_buy, self.trigger_sell]
+            return [self.price_line, self.ema_line, self.ema_100_line, self.ema_slow_line, self.peaks_min_inf, 
+                    self.peaks_max_inf, self.trigger_buy, self.trigger_sell, self.trigger_close_buy, 
+                    self.trigger_close_sell, self.peaks_min_regression_line, self.peaks_max_regression_line, 
+                    self.price_regression_line]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
@@ -176,4 +216,4 @@ def main():
     plotter.animate()
 
 if __name__ == "__main__":
-    main() 
+    main()
