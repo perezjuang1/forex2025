@@ -134,6 +134,47 @@ class RobotPrice:
                 rs = gain / loss
                 return 100 - (100 / (1 + rs))
 
+        def calculate_price_prediction(self, df: pd.DataFrame, hours_ahead: int = 5) -> pd.DataFrame:
+                """Calculate price predictions for the next N hours using linear regression."""
+                # Get the last 100 data points for prediction
+                recent_data = df['bidclose'].tail(100)
+                
+                # Create time index
+                x = np.arange(len(recent_data))
+                
+                # Calculate linear regression
+                coeffs = np.polyfit(x, recent_data, 1)
+                
+                # Calculate number of future points based on timeframe
+                if self.timeframe == "m1":
+                    future_points = hours_ahead * 60
+                elif self.timeframe == "m5":
+                    future_points = hours_ahead * 12
+                elif self.timeframe == "m15":
+                    future_points = hours_ahead * 4
+                elif self.timeframe == "m30":
+                    future_points = hours_ahead * 2
+                elif self.timeframe == "H1":
+                    future_points = hours_ahead
+                else:
+                    future_points = hours_ahead * 12  # Default to m5 timeframe
+                
+                # Generate future predictions
+                future_x = np.arange(len(recent_data), len(recent_data) + future_points)
+                future_predictions = coeffs[0] * future_x + coeffs[1]
+                
+                # Add predictions to DataFrame
+                df['price_prediction'] = np.nan
+                df.loc[df.index[-1], 'price_prediction'] = future_predictions[0]
+                
+                # Calculate and store prediction direction
+                current_price = df['bidclose'].iloc[-1]
+                predicted_price = future_predictions[0]
+                df['prediction_direction'] = np.nan
+                df.loc[df.index[-1], 'prediction_direction'] = 1 if predicted_price > current_price else -1
+                
+                return df
+
         def setIndicators(self, df):
                 df['value1'] = 1
                 # Find local peaks
@@ -156,6 +197,9 @@ class RobotPrice:
                 # Apply sell and buy strategies
                 df = self.apply_sell_strategy(df)
                 df = self.apply_buy_strategy(df)
+
+                # Add price predictions
+                df = self.calculate_price_prediction(df)
 
                 return df
         

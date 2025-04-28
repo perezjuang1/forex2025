@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import warnings
 import os
 from datetime import datetime
+import numpy as np
 
 # Ignore specific matplotlib warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Matplotlib.*")
@@ -36,43 +37,52 @@ class ForexPlotter:
     def setup_plot(self) -> None:
         """Setup the basic plot configuration"""
         plt.style.use('dark_background')
-        self.ax.set_xlabel('Date')
-        self.ax.set_ylabel(f'Price Move {self.config.instrument}')
-        self.ax.grid(True, alpha=0.3)
+        self.ax.set_xlabel('Date', color='white')
+        self.ax.set_ylabel(f'Price Move {self.config.instrument}', color='white')
+        self.ax.grid(True, alpha=0.3, color='gray')
+        self.ax.tick_params(colors='white')
+        self.fig.patch.set_facecolor('#1a1a1a')
+        self.ax.set_facecolor('#1a1a1a')
         
     def setup_lines(self) -> None:
         """Initialize all plot lines"""
         # Price lines
-        self.price_line, = self.ax.plot([], [], linestyle='dotted', color='gray', label='Price')
-        self.ema_line, = self.ax.plot([], [], linestyle='dotted', color='pink', label='Moving Average')
+        self.price_line, = self.ax.plot([], [], linestyle='dotted', color='#00ff00', label='Price')
+        self.ema_line, = self.ax.plot([], [], linestyle='dotted', color='#ff00ff', label='Moving Average')
           # Add 100-period EMA line
-        self.ema_100_line, = self.ax.plot([], [], linestyle='solid', color='purple', label='EMA 100')
-        self.ema_slow_line, = self.ax.plot([], [], linestyle='solid', color='yellow', label='EMA Slow')
+        self.ema_100_line, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='EMA 100')
+        self.ema_slow_line, = self.ax.plot([], [], linestyle='solid', color='#00ffff', label='EMA Slow')
 
         # Peak markers
-        self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='blue', label='Min Peaks')
-        self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='blue', label='Max Peaks')
+        self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
+        self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#ff6666', label='Max Peaks')
        
 
         # Replace line_min and line_max with regression lines for peaks
-        self.peaks_min_regression_line, = self.ax.plot([], [], linestyle='dashed', color='cyan', label='Min Regression')
-        self.peaks_max_regression_line, = self.ax.plot([], [], linestyle='dashed', color='magenta', label='Max Regression')
+        self.peaks_min_regression_line, = self.ax.plot([], [], linestyle='dashed', color='#00ffff', label='Min Regression')
+        self.peaks_max_regression_line, = self.ax.plot([], [], linestyle='dashed', color='#ff66ff', label='Max Regression')
         
       
         # Trigger markers
-        self.trigger_buy, = self.ax.plot([], [], '^', color='green', label='Buy Trigger')
-        self.trigger_sell, = self.ax.plot([], [], 'v', color='red', label='Sell Trigger')
+        self.trigger_buy, = self.ax.plot([], [], '^', color='#00ff00', label='Buy Trigger')
+        self.trigger_sell, = self.ax.plot([], [], 'v', color='#ff0000', label='Sell Trigger')
         
    # Add markers for closed buy and sell operations
-        self.trigger_close_buy, = self.ax.plot([], [], '*', color='green', label='Close Buy Trigger')
-        self.trigger_close_sell, = self.ax.plot([], [], '*', color='red', label='Close Sell Trigger')
+        self.trigger_close_buy, = self.ax.plot([], [], '*', color='#00ff00', label='Close Buy Trigger')
+        self.trigger_close_sell, = self.ax.plot([], [], '*', color='#ff0000', label='Close Sell Trigger')
 
   # Add price_regression line
-        self.price_regression_line, = self.ax.plot([], [], linestyle='solid', color='orange', label='Price Regression')
+        self.price_regression_line, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Price Regression')
      
      
-        # Add legend
-        self.ax.legend()
+        # Add price prediction line and direction marker
+        self.price_prediction_line, = self.ax.plot([], [], linestyle='dashed', color='#ffffff', label='Price Prediction')
+        self.prediction_direction_marker, = self.ax.plot([], [], marker='', color='#ffffff', label='Prediction Direction')
+        
+        # Add legend with white text
+        legend = self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
+        for text in legend.get_texts():
+            text.set_color('white')
         
     def load_data(self) -> pd.DataFrame:
         """Load and process the forex data"""
@@ -165,6 +175,20 @@ class ForexPlotter:
             self.trigger_close_sell.set_data(df_view[df_view['sell'] == -1.0].index, 
                                              df_view[df_view['sell'] == -1.0]['bidclose'])
 
+            # Update price prediction line and direction marker
+            last_index = df_view.index[-1]
+            if not pd.isna(df_view.loc[last_index, 'price_prediction']):
+                # Create future indices for prediction
+                future_indices = np.arange(last_index, last_index + 60)  # Show next 60 points
+                self.price_prediction_line.set_data(future_indices, 
+                                                  [df_view.loc[last_index, 'price_prediction']] * len(future_indices))
+                
+                # Set direction marker based on stored prediction direction
+                direction = df_view.loc[last_index, 'prediction_direction']
+                marker = '^' if direction == 1 else 'v'
+                self.prediction_direction_marker.set_marker(marker)
+                self.prediction_direction_marker.set_data([last_index], [df_view.loc[last_index, 'bidclose']])
+
             # Only autoscale if we're not zoomed in
             if xlim[0] == 0 and xlim[1] == len(self.data):
                 self.ax.relim()
@@ -173,7 +197,7 @@ class ForexPlotter:
             return [self.price_line, self.ema_line, self.ema_100_line, self.ema_slow_line, self.peaks_min_inf, 
                     self.peaks_max_inf, self.trigger_buy, self.trigger_sell, self.trigger_close_buy, 
                     self.trigger_close_sell, self.peaks_min_regression_line, self.peaks_max_regression_line, 
-                    self.price_regression_line]
+                    self.price_regression_line, self.price_prediction_line, self.prediction_direction_marker]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
