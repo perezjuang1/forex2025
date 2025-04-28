@@ -57,10 +57,9 @@ class ForexPlotter:
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
         self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#ff6666', label='Max Peaks')
        
-
-        # Replace line_min and line_max with regression lines for peaks
-        self.peaks_min_regression_line, = self.ax.plot([], [], linestyle='dashed', color='#00ffff', label='Min Regression')
-        self.peaks_max_regression_line, = self.ax.plot([], [], linestyle='dashed', color='#ff66ff', label='Max Regression')
+        # Remove regression lines for peaks
+        # self.peaks_min_regression_line, = self.ax.plot([], [], linestyle='dashed', color='#00ffff', label='Min Regression')
+        # self.peaks_max_regression_line, = self.ax.plot([], [], linestyle='dashed', color='#ff66ff', label='Max Regression')
         
       
         # Trigger markers
@@ -74,11 +73,6 @@ class ForexPlotter:
   # Add price_regression line
         self.price_regression_line, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Price Regression')
      
-     
-        # Add price prediction line and direction marker
-        self.price_prediction_line, = self.ax.plot([], [], linestyle='dashed', color='#ffffff', label='Price Prediction')
-        self.prediction_direction_marker, = self.ax.plot([], [], marker='', color='#ffffff', label='Prediction Direction')
-        
         # Add legend with white text
         legend = self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
         for text in legend.get_texts():
@@ -152,11 +146,9 @@ class ForexPlotter:
             self.trigger_sell.set_data(df_view[df_view['sell'] == 1.0].index, 
                                       df_view[df_view['sell'] == 1.0]['bidclose'])
             
-            # Update peaks_min_regression line
-            self.peaks_min_regression_line.set_data(df_view.index, df_view['peaks_min_regression'])
-
-            # Update peaks_max_regression line
-            self.peaks_max_regression_line.set_data(df_view.index, df_view['peaks_max_regression'])
+            # Remove updates for regression lines for peaks
+            # self.peaks_min_regression_line.set_data(df_view.index, df_view['peaks_min_regression'])
+            # self.peaks_max_regression_line.set_data(df_view.index, df_view['peaks_max_regression'])
             
             # Update price_regression line
             self.price_regression_line.set_data(df_view.index, df_view['price_regression'])
@@ -175,20 +167,6 @@ class ForexPlotter:
             self.trigger_close_sell.set_data(df_view[df_view['sell'] == -1.0].index, 
                                              df_view[df_view['sell'] == -1.0]['bidclose'])
 
-            # Update price prediction line and direction marker
-            last_index = df_view.index[-1]
-            if not pd.isna(df_view.loc[last_index, 'price_prediction']):
-                # Create future indices for prediction
-                future_indices = np.arange(last_index, last_index + 60)  # Show next 60 points
-                self.price_prediction_line.set_data(future_indices, 
-                                                  [df_view.loc[last_index, 'price_prediction']] * len(future_indices))
-                
-                # Set direction marker based on stored prediction direction
-                direction = df_view.loc[last_index, 'prediction_direction']
-                marker = '^' if direction == 1 else 'v'
-                self.prediction_direction_marker.set_marker(marker)
-                self.prediction_direction_marker.set_data([last_index], [df_view.loc[last_index, 'bidclose']])
-
             # Only autoscale if we're not zoomed in
             if xlim[0] == 0 and xlim[1] == len(self.data):
                 self.ax.relim()
@@ -196,8 +174,7 @@ class ForexPlotter:
             
             return [self.price_line, self.ema_line, self.ema_100_line, self.ema_slow_line, self.peaks_min_inf, 
                     self.peaks_max_inf, self.trigger_buy, self.trigger_sell, self.trigger_close_buy, 
-                    self.trigger_close_sell, self.peaks_min_regression_line, self.peaks_max_regression_line, 
-                    self.price_regression_line, self.price_prediction_line, self.prediction_direction_marker]
+                    self.trigger_close_sell, self.price_regression_line]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []

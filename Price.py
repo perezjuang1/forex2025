@@ -58,33 +58,6 @@ class RobotPrice:
                         return coeffs[0] * x + coeffs[1]  # y = mx + b
                 return pd.Series(np.nan, index=df.index)  # Return NaN if not enough data
 
-        def calculate_peak_regressions(self, df: pd.DataFrame) -> pd.DataFrame:
-                """Calculate regression lines for the last three peaks (min and max)."""
-                df['peaks_min_regression'] = np.nan
-                df['peaks_max_regression'] = np.nan
-
-                # Get the last three peaks for min and max
-                peaks_min_indices = df[df['peaks_min'] == 1].index[-4:]
-                peaks_max_indices = df[df['peaks_max'] == 1].index[-4:]
-
-                if len(peaks_min_indices) == 4:
-                        # Linear regression for last three min peaks
-                        x_min = peaks_min_indices
-                        y_min = df.loc[peaks_min_indices, 'bidclose']
-                        coeffs_min = np.polyfit(x_min, y_min, 1)  # Linear regression (degree 1)
-                        for i in range(peaks_min_indices[0], peaks_min_indices[-1] + 1):
-                                df.loc[i, 'peaks_min_regression'] = coeffs_min[0] * i + coeffs_min[1]  # y = mx + b
-
-                if len(peaks_max_indices) == 4:
-                        # Linear regression for last three max peaks
-                        x_max = peaks_max_indices
-                        y_max = df.loc[peaks_max_indices, 'bidclose']
-                        coeffs_max = np.polyfit(x_max, y_max, 1)  # Linear regression (degree 1)
-                        for i in range(peaks_max_indices[0], peaks_max_indices[-1] + 1):
-                                df.loc[i, 'peaks_max_regression'] = coeffs_max[0] * i + coeffs_max[1]  # y = mx + b
-
-                return df
-
         def apply_sell_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
                 """Apply the sell strategy to the DataFrame, considering the 100-period EMA."""
                 df['sell'] = 0
@@ -134,47 +107,6 @@ class RobotPrice:
                 rs = gain / loss
                 return 100 - (100 / (1 + rs))
 
-        def calculate_price_prediction(self, df: pd.DataFrame, hours_ahead: int = 5) -> pd.DataFrame:
-                """Calculate price predictions for the next N hours using linear regression."""
-                # Get the last 100 data points for prediction
-                recent_data = df['bidclose'].tail(100)
-                
-                # Create time index
-                x = np.arange(len(recent_data))
-                
-                # Calculate linear regression
-                coeffs = np.polyfit(x, recent_data, 1)
-                
-                # Calculate number of future points based on timeframe
-                if self.timeframe == "m1":
-                    future_points = hours_ahead * 60
-                elif self.timeframe == "m5":
-                    future_points = hours_ahead * 12
-                elif self.timeframe == "m15":
-                    future_points = hours_ahead * 4
-                elif self.timeframe == "m30":
-                    future_points = hours_ahead * 2
-                elif self.timeframe == "H1":
-                    future_points = hours_ahead
-                else:
-                    future_points = hours_ahead * 12  # Default to m5 timeframe
-                
-                # Generate future predictions
-                future_x = np.arange(len(recent_data), len(recent_data) + future_points)
-                future_predictions = coeffs[0] * future_x + coeffs[1]
-                
-                # Add predictions to DataFrame
-                df['price_prediction'] = np.nan
-                df.loc[df.index[-1], 'price_prediction'] = future_predictions[0]
-                
-                # Calculate and store prediction direction
-                current_price = df['bidclose'].iloc[-1]
-                predicted_price = future_predictions[0]
-                df['prediction_direction'] = np.nan
-                df.loc[df.index[-1], 'prediction_direction'] = 1 if predicted_price > current_price else -1
-                
-                return df
-
         def setIndicators(self, df):
                 df['value1'] = 1
                 # Find local peaks
@@ -191,15 +123,9 @@ class RobotPrice:
                 # Add linear regression for bidclose prices
                 df['price_regression'] = self.calculate_linear_regression(df, 'bidclose')
 
-                # Calculate regression lines for peaks
-                df = self.calculate_peak_regressions(df)
-
                 # Apply sell and buy strategies
                 df = self.apply_sell_strategy(df)
                 df = self.apply_buy_strategy(df)
-
-                # Add price predictions
-                df = self.calculate_price_prediction(df)
 
                 return df
         
