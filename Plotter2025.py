@@ -73,6 +73,9 @@ class ForexPlotter:
   # Add price_regression line
         self.price_regression_line, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Price Regression')
      
+        # Add median line
+        self.median_line, = self.ax.plot([], [], linestyle='dotted', color='#ffa500', label='Price Median')
+
         # Add legend with white text
         legend = self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
         for text in legend.get_texts():
@@ -106,6 +109,12 @@ class ForexPlotter:
             print(f"Error loading data: {str(e)}")
             return pd.DataFrame()
             
+    def highlight_deviation_zones(self, df_view: pd.DataFrame) -> None:
+        """Highlight zones where the price deviates significantly from its median."""
+        for index, row in df_view.iterrows():
+            if row['deviation_zone'] == 1:
+                self.ax.axvspan(index - 0.5, index + 0.5, color='red', alpha=0.5, label='Deviation Zone')
+
     def update_plot(self, frame: int) -> List[plt.Line2D]:
         """Update the plot for each animation frame"""
         current_time = datetime.now().timestamp()
@@ -167,6 +176,12 @@ class ForexPlotter:
             self.trigger_close_sell.set_data(df_view[df_view['sell'] == -1.0].index, 
                                              df_view[df_view['sell'] == -1.0]['bidclose'])
 
+            # Update median price line
+            self.median_line.set_data(df_view.index, df_view['price_median'])
+
+            # Highlight deviation zones
+            self.highlight_deviation_zones(df_view)
+
             # Only autoscale if we're not zoomed in
             if xlim[0] == 0 and xlim[1] == len(self.data):
                 self.ax.relim()
@@ -174,7 +189,7 @@ class ForexPlotter:
             
             return [self.price_line, self.ema_line, self.ema_100_line, self.ema_slow_line, self.peaks_min_inf, 
                     self.peaks_max_inf, self.trigger_buy, self.trigger_sell, self.trigger_close_buy, 
-                    self.trigger_close_sell, self.price_regression_line]
+                    self.trigger_close_sell, self.price_regression_line, self.median_line]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
@@ -198,7 +213,7 @@ class ForexPlotter:
             self.fig, 
             self.update_plot, 
             frames=None,
-            interval=100,  # Faster update interval for smoother interaction
+            interval=2000,  # Cambiado a 1000 ms (1 segundo) para un refresco más lento
             blit=True
         )
         plt.show()

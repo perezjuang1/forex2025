@@ -59,31 +59,31 @@ class RobotPrice:
                 return pd.Series(np.nan, index=df.index)  # Return NaN if not enough data
 
         def apply_sell_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
-                """Apply the sell strategy to the DataFrame, considering the 100-period EMA."""
+                """Apply the sell strategy to the DataFrame, considering the 100-period EMA and deviation zones."""
                 df['sell'] = 0
                 operationActive = False
                 for index, row in df.iterrows():
-                        # Only consider sell operations below the 100-period EMA
-                        if not operationActive and df.loc[index, 'peaks_max'] == 1:# 1 and df.loc[index, 'bidclose'] < df.loc[index, 'ema_100']:
+                        # Only consider sell operations below the 100-period EMA and near a deviation zone
+                        if not operationActive and df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'deviation_zone'] == 1:
                                 operationActive = True
                                 df.loc[index, 'sell'] = 1  # Open sell operation
-                        # Only consider buy operations above the 100-period EMA
-                        elif operationActive and df.loc[index, 'peaks_min'] == 1:# and df.loc[index, 'bidclose'] > df.loc[index, 'ema_100']:
+                        # Only consider buy operations above the 100-period EMA and near a deviation zone
+                        elif operationActive and df.loc[index, 'peaks_min'] == 1:
                                 df.loc[index, 'sell'] = -1  # Close sell operation
                                 operationActive = False
                 return df
 
         def apply_buy_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
-                """Apply the buy strategy to the DataFrame, considering the 100-period EMA."""
+                """Apply the buy strategy to the DataFrame, considering the 100-period EMA and deviation zones."""
                 df['buy'] = 0
                 operationActive = False
                 for index, row in df.iterrows():
-                        # Only consider buy operations above the 100-period EMA
-                        if not operationActive and df.loc[index, 'peaks_min'] == 1:# and df.loc[index, 'bidclose'] > df.loc[index, 'ema_100']:
+                        # Only consider buy operations above the 100-period EMA and near a deviation zone
+                        if not operationActive and df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'deviation_zone'] == 1:
                                 operationActive = True
                                 df.loc[index, 'buy'] = 1  # Open buy operation
-                        # Only consider sell operations below the 100-period EMA
-                        elif operationActive and df.loc[index, 'peaks_max'] == 1 :#and df.loc[index, 'bidclose'] < df.loc[index, 'ema_100']:
+                        # Only consider sell operations below the 100-period EMA and near a deviation zone
+                        elif operationActive and df.loc[index, 'peaks_max'] == 1 :
                                 df.loc[index, 'buy'] = -1  # Close buy operation
                                 operationActive = False
                 return df
@@ -107,6 +107,40 @@ class RobotPrice:
                 rs = gain / loss
                 return 100 - (100 / (1 + rs))
 
+        def calculate_price_median(self, df: pd.DataFrame) -> pd.DataFrame:
+                """Calculate a slightly more sensitive median price by refining the calculation."""
+                required_columns = ['bidclose', 'bidopen', 'bidhigh', 'bidlow']
+
+                # Ensure all required columns are present
+                if not all(col in df.columns for col in required_columns):
+                        raise ValueError(f"DataFrame must contain the following columns: {required_columns}")
+
+                # Refine the calculation to make it slightly more sensitive
+                df['price_median'] = (
+                        df['bidclose'] * 0.35 +  # Slightly higher weight to bidclose
+                        df['bidopen'] * 0.25 +  # Moderate weight to bidopen
+                        df['bidhigh'] * 0.2 +  # Lower weight to bidhigh
+                        df['bidlow'] * 0.2    # Equal weight to bidhigh and bidlow
+                )
+
+                return df
+
+        def identify_price_deviation_zones(self, df: pd.DataFrame, threshold: float = 0.0005) -> pd.DataFrame:
+                """Identify zones where the price deviates significantly from its median and mark them."""
+                df['deviation_zone'] = 0
+
+                # Adjust the threshold to make detection more sensitive
+                df['deviation_zone'] = (
+                        (df['bidclose'] - df['price_median']).abs() > threshold
+                ).astype(int)
+
+                # Add a condition to detect zones where the price is consistently above or below the median
+                df['deviation_zone'] |= (
+                        (df['bidclose'] > df['price_median'] * 1.0002) | (df['bidclose'] < df['price_median'] * 0.9998)
+                ).astype(int)
+
+                return df
+
         def setIndicators(self, df):
                 df['value1'] = 1
                 # Find local peaks
@@ -114,15 +148,21 @@ class RobotPrice:
                 df['ema_slow'] = df['bidclose'].ewm(span=30).mean()
                 df['ema_100'] = df['bidclose'].ewm(span=80).mean()  # Add 100-period EMA
 
-                df['peaks_min'] = df.iloc[signal.argrelextrema(df['ema'].values,np.less,order=30)[0]]['value1']
-                df['peaks_max'] = df.iloc[signal.argrelextrema(df['ema'].values,np.greater,order=30)[0]]['value1']
+                df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=30)[0]]['value1']
+                df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=30)[0]]['value1']
 
                 # Add RSI indicator
                 df['rsi'] = self.calculate_rsi(df, 'bidclose')
 
                 # Add linear regression for bidclose prices
                 df['price_regression'] = self.calculate_linear_regression(df, 'bidclose')
-
+                
+                # Calculate median price
+                df = self.calculate_price_median(df)
+                
+                # Identify price deviation zones
+                df = self.identify_price_deviation_zones(df)
+                
                 # Apply sell and buy strategies
                 df = self.apply_sell_strategy(df)
                 df = self.apply_buy_strategy(df)
