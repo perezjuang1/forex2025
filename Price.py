@@ -307,31 +307,19 @@ class RobotPrice:
 
     def evaluate_trading_signals(self, df):
         """Evaluate trading signals and execute operations based on peaks and deviation zones."""
-        TriggerSell = False
-        TriggerBuy = False
+        triggers = {
+            "S": any((df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'deviation_zone'] == 1) for index in df.tail(4).index),
+            "B": any((df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'deviation_zone'] == 1) for index in df.tail(4).index),
+        }
 
-        # Check the last 8 rows for sell or buy triggers
-        for index, row in df.tail(8).iterrows():
-            if df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'deviation_zone'] == 1:
-                TriggerSell = True
-            if df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'deviation_zone'] == 1:
-                TriggerBuy = True
-
-        # Handle sell operations
-        if TriggerSell:
-            if self.existingOperation(instrument=self.instrument, BuySell="B"):
-                self.CloseOperation(instrument=self.instrument, BuySell="B")
-            print("SELL OPERATION!")
-            if not self.existingOperation(instrument=self.instrument, BuySell="S"):
-                self.createEntryOrder(str_buy_sell="S")
-
-        # Handle buy operations
-        if TriggerBuy:
-            if self.existingOperation(instrument=self.instrument, BuySell="S"):
-                self.CloseOperation(instrument=self.instrument, BuySell="S")
-            print("BUY OPERATION!")
-            if not self.existingOperation(instrument=self.instrument, BuySell="B"):
-                self.createEntryOrder(str_buy_sell="B")
+        for buy_sell, trigger in triggers.items():
+            if trigger:
+                opposite = "B" if buy_sell == "S" else "S"
+                if self.existingOperation(instrument=self.instrument, BuySell=opposite):
+                    self.CloseOperation(instrument=self.instrument, BuySell=opposite)
+                print(f"{'SELL' if buy_sell == 'S' else 'BUY'} OPERATION!")
+                if not self.existingOperation(instrument=self.instrument, BuySell=buy_sell):
+                    self.createEntryOrder(str_buy_sell=buy_sell)
 
     def setIndicators(self, df):
         df['value1'] = 1
