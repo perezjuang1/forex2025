@@ -110,10 +110,20 @@ class ForexPlotter:
             return pd.DataFrame()
             
     def highlight_deviation_zones(self, df_view: pd.DataFrame) -> None:
-        """Highlight zones where the price deviates significantly from its median."""
+        """Highlight zones where the price deviates significantly from its median based on the highest and lowest values."""
+        # Obtener el valor más alto y más bajo del DataFrame
+        min_price = df_view['bidclose'].min()
+        max_price = df_view['bidclose'].max()
+
+        # Resaltar las zonas de desviación
         for index, row in df_view.iterrows():
             if row['deviation_zone'] == 1:
-                self.ax.axvspan(index - 0.5, index + 0.5, color='red', alpha=0.5, label='Deviation Zone')
+                # Normalizar los límites verticales (ymin y ymax) en función del rango de precios
+                ymin = (row['bidclose'] - min_price) / (max_price - min_price) - 0.70 # Ajustar para dar altura
+                ymax = (row['bidclose'] - min_price) / (max_price - min_price) + 0.70  # Ajustar para dar altura
+                ymin = max(0, ymin)  # Asegurarse de que ymin no sea menor que 0
+                ymax = min(1, ymax)  # Asegurarse de que ymax no sea mayor que 1
+                self.ax.axvspan(index - 0.5, index + 0.5, color='red', alpha=0.5, ymin=ymin, ymax=ymax)
 
     def update_plot(self, frame: int) -> List[plt.Line2D]:
         """Update the plot for each animation frame"""
@@ -213,7 +223,7 @@ class ForexPlotter:
             self.fig, 
             self.update_plot, 
             frames=None,
-            interval=2000,  # Cambiado a 1000 ms (1 segundo) para un refresco más lento
+            interval=4000,  # Cambiado a 1000 ms (1 segundo) para un refresco más lento
             blit=True
         )
         plt.show()

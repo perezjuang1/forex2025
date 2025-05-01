@@ -70,7 +70,7 @@ class TradeMonitor:
             except Exception as e:
                 print("Exception: " + str(e))
 
-    def createEntryOrder(self,str_buy_sell=None):
+    def createEntryOrder(self, str_buy_sell=None):
         args = self.robotconnection.args
         common = self.robotconnection.common
         fxcorepy = self.robotconnection.fxcorepy
@@ -113,82 +113,83 @@ class TradeMonitor:
         if peglimittype:
             peglimittype = peglimittype.upper()
 
-           
-            try:
-                account = common.get_account(self.connection, str_account)
-                if not account:
-                    raise Exception(
-                        "The account '{0}' is not valid".format(str_account))
+        try:
+            account = common.get_account(self.connection, str_account)
+            if not account:
+                raise Exception("The account '{0}' is not valid".format(str_account))
+            else:
+                str_account = account.account_id
+                print("AccountID='{0}'".format(str_account))
+
+            offer = common.get_offer(self.connection, str_instrument)
+            if offer is None:
+                raise Exception("The instrument '{0}' is not valid".format(str_instrument))
+
+            login_rules = self.connection.login_rules
+            trading_settings_provider = login_rules.trading_settings_provider
+            base_unit_size = trading_settings_provider.get_base_unit_size(str_instrument, account)
+            amount = base_unit_size * str_lots
+            entry = fxcorepy.Constants.Orders.TRUE_MARKET_OPEN
+
+            if str_buy_sell == 'B':
+                stopv = -stop
+                limitv = limit
+                str_buy_sell = fxcorepy.Constants.BUY
+            else:
+                stopv = stop
+                limitv = -limit
+                str_buy_sell = fxcorepy.Constants.SELL
+
+            if peggedstop:
+                if peggedlimit:
+                    request = self.connection.create_order_request(
+                        order_type=entry,
+                        OFFER_ID=offer.offer_id,
+                        ACCOUNT_ID=str_account,
+                        BUY_SELL=str_buy_sell,
+                        PEG_TYPE_STOP=pegstoptype,
+                        PEG_OFFSET_STOP=stopv,
+                        PEG_TYPE_LIMIT=peglimittype,
+                        PEG_OFFSET_LIMIT=limitv,
+                        AMOUNT=amount,
+                    )
                 else:
-                    str_account = account.account_id
-                    print("AccountID='{0}'".format(str_account))
-
-                offer = common.get_offer(self.connection, str_instrument)
-                if offer is None:
-                    raise Exception(
-                        "The instrument '{0}' is not valid".format(str_instrument))
-
-                login_rules = self.connection.login_rules
-                trading_settings_provider = login_rules.trading_settings_provider
-                base_unit_size = trading_settings_provider.get_base_unit_size(str_instrument, account)
-                amount = base_unit_size * str_lots
-                entry = fxcorepy.Constants.Orders.TRUE_MARKET_OPEN
-
-                if str_buy_sell == 'B':
-                    stopv = -stop
-                    limitv = limit
-                    str_buy_sell = fxcorepy.Constants.BUY
+                    request = self.connection.create_order_request(
+                        order_type=entry,
+                        OFFER_ID=offer.offer_id,
+                        ACCOUNT_ID=str_account,
+                        BUY_SELL=str_buy_sell,
+                        PEG_TYPE_STOP=pegstoptype,
+                        PEG_OFFSET_STOP=stopv,
+                        RATE_LIMIT=limit,
+                        AMOUNT=amount,
+                    )
+            else:
+                if peggedlimit:
+                    request = self.connection.create_order_request(
+                        order_type=entry,
+                        OFFER_ID=offer.offer_id,
+                        ACCOUNT_ID=str_account,
+                        BUY_SELL=str_buy_sell,
+                        RATE_STOP=stop,
+                        PEG_TYPE_LIMIT=peglimittype,
+                        PEG_OFFSET_LIMIT=limitv,
+                        AMOUNT=amount,
+                    )
                 else:
-                    stopv = stop
-                    limitv = -limit
-                    str_buy_sell = fxcorepy.Constants.SELL
+                    request = self.connection.create_order_request(
+                        order_type=entry,
+                        OFFER_ID=offer.offer_id,
+                        ACCOUNT_ID=str_account,
+                        BUY_SELL=str_buy_sell,
+                        AMOUNT=amount,
+                        RATE_STOP=stop,
+                        RATE_LIMIT=limit,
+                    )
+            self.connection.send_request_async(request)
+        except Exception as e:
+            print(e)
 
-                if peggedstop:
-                    if peggedlimit:
-                        request = self.connection.create_order_request(
-                            order_type=entry,
-                            OFFER_ID=offer.offer_id,
-                            ACCOUNT_ID=str_account,
-                            BUY_SELL=str_buy_sell,
-                            PEG_TYPE_STOP=pegstoptype,
-                            PEG_OFFSET_STOP=stopv,
-                            PEG_TYPE_LIMIT=peglimittype,
-                            PEG_OFFSET_LIMIT=limitv,
-                            AMOUNT=amount,
-                        )
-                    else:
-                        request = self.connection.create_order_request(
-                            order_type=entry,
-                            OFFER_ID=offer.offer_id,
-                            ACCOUNT_ID=str_account,
-                            BUY_SELL=str_buy_sell,
-                            PEG_TYPE_STOP=pegstoptype,
-                            PEG_OFFSET_STOP=stopv,
-                            RATE_LIMIT=limit,
-                            AMOUNT=amount,)
-                else:
-                                if peggedlimit:
-                                    request = self.connection.create_order_request(
-                                        order_type=entry,
-                                        OFFER_ID=offer.offer_id,
-                                        ACCOUNT_ID=str_account,
-                                        BUY_SELL=str_buy_sell,
-                                        RATE_STOP=stop,
-                                        PEG_TYPE_LIMIT=peglimittype,
-                                        PEG_OFFSET_LIMIT=limitv,
-                                        AMOUNT=amount,)
-                                else:
-                                    request = self.connection.create_order_request(
-                                        order_type=entry,
-                                        OFFER_ID=offer.offer_id,
-                                        ACCOUNT_ID=str_account,
-                                        BUY_SELL=str_buy_sell,
-                                        AMOUNT=amount,
-                                        RATE_STOP=stop,
-                                        RATE_LIMIT=limit,)
-                self.connection.send_request_async(request)
-            except Exception as e:
-                print(e)
     def fractal_up(self,df, n):
         return df['bidclose'].rolling(n).apply(lambda x: x.argmax() == n//2)
 
