@@ -119,11 +119,11 @@ class ForexPlotter:
         for index, row in df_view.iterrows():
             if row['deviation_zone'] == 1:
                 # Normalizar los límites verticales (ymin y ymax) en función del rango de precios
-                ymin = (row['bidclose'] - min_price) / (max_price - min_price) - 0.70 # Ajustar para dar altura
-                ymax = (row['bidclose'] - min_price) / (max_price - min_price) + 0.70  # Ajustar para dar altura
+                ymin = (row['bidclose'] - min_price) / (max_price - min_price) - 0.80 # Ajustar para dar altura
+                ymax = (row['bidclose'] - min_price) / (max_price - min_price) + 0.80  # Ajustar para dar altura
                 ymin = max(0, ymin)  # Asegurarse de que ymin no sea menor que 0
                 ymax = min(1, ymax)  # Asegurarse de que ymax no sea mayor que 1
-                self.ax.axvspan(index - 0.5, index + 0.5, color='red', alpha=0.5, ymin=ymin, ymax=ymax)
+                self.ax.axvspan(index - 0.5, index + 0.5, color='gray', alpha=0.4, ymin=ymin, ymax=ymax)
 
     def update_plot(self, frame: int) -> List[plt.Line2D]:
         """Update the plot for each animation frame"""
