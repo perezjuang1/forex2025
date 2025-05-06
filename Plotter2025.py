@@ -142,11 +142,15 @@ class ForexPlotter:
             # Get current view limits
             xlim = self.ax.get_xlim()
             
+            # Ensure xlim is within valid range
+            xlim = (max(0, int(xlim[0])), min(len(self.data) - 1, int(xlim[1])))
+            
             # Filter data based on current view
             mask = (self.data.index >= xlim[0]) & (self.data.index <= xlim[1])
             df_view = self.data[mask]
             
-            if len(df_view) == 0:
+            if df_view.empty:
+                print("No data in the current view range")
                 return []
             
             # Update price and EMA lines
@@ -164,10 +168,6 @@ class ForexPlotter:
                                      df_view[df_view['buy'] == 1.0]['bidclose'])
             self.trigger_sell.set_data(df_view[df_view['sell'] == 1.0].index, 
                                       df_view[df_view['sell'] == 1.0]['bidclose'])
-            
-            # Remove updates for regression lines for peaks
-            # self.peaks_min_regression_line.set_data(df_view.index, df_view['peaks_min_regression'])
-            # self.peaks_max_regression_line.set_data(df_view.index, df_view['peaks_max_regression'])
             
             # Update price_regression line
             self.price_regression_line.set_data(df_view.index, df_view['price_regression'])
@@ -192,10 +192,8 @@ class ForexPlotter:
             # Highlight deviation zones
             self.highlight_deviation_zones(df_view)
 
-            # Only autoscale if we're not zoomed in
-            if xlim[0] == 0 and xlim[1] == len(self.data):
-                self.ax.relim()
-                self.ax.autoscale_view()
+            # Adjust y-axis limits dynamically based on visible data
+            self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
             
             return [self.price_line, self.ema_line, self.ema_100_line, self.ema_slow_line, self.peaks_min_inf, 
                     self.peaks_max_inf, self.trigger_buy, self.trigger_sell, self.trigger_close_buy, 
