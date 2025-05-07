@@ -20,7 +20,7 @@ class Trading:
         self.connection.logout()
 
     def start_trade_monitor(self):    
-        self.operation_detection(timeframe=self.timeframe)        
+        self.operation_detection(timeframe=self.timeframe)  
         while True:            
             currenttime = dt.datetime.now()  
             if self.timeframe == "m1" and currenttime.second == 0:
@@ -42,8 +42,8 @@ class Trading:
 
     def operation_detection(self, timeframe): 
             df = self._robot_price.getPriceData(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
-            print("Price Data Received..." + str(timeframe) + " " + str(self.instrument) + " " + str(dt.datetime.now()))
-            print("Price Data Length: " + str(len(df)) + " " + str(df))
+            #"""print("Price Data Received..." + str(timeframe) + " " + str(self.instrument) + " " + str(dt.datetime.now()))
+            #"""print("Price Data Length: " + str(len(df)) + " " + str(df))""
 
 # Example usage
 if __name__ == "__main__":
