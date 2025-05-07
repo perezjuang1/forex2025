@@ -2,7 +2,8 @@ import pandas as pd
 
 
 from datetime import datetime
-from pytz import timezone 
+from backports.zoneinfo import ZoneInfo
+
 import numpy as np
 import pandas as pd
 from scipy import signal
@@ -353,29 +354,29 @@ class RobotPrice:
         return df
 
     def getPriceData(self, instrument, timeframe, days, connection):
-        europe_London_datetime = datetime.now( timezone('Europe/London') )
-        date_from =  europe_London_datetime - dt.timedelta(days=days)
+        europe_London_datetime = datetime.now(ZoneInfo('Europe/London'))  # Uso de ZoneInfo
+        date_from = europe_London_datetime - dt.timedelta(days=days)
         date_to = europe_London_datetime
         try:
-                        
             history = connection.get_history(instrument, timeframe, date_from, date_to)
             current_unit, _ = connection.parse_timeframe(timeframe)
             print("Price Data Received..." + str(current_unit) + " " + str(timeframe) + " " + str(instrument) + " " + str(europe_London_datetime))
 
-            pricedata = pd.DataFrame(history, columns = ["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
+            pricedata = pd.DataFrame(history, columns=["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
 
-            d =    {'date': pricedata['Date'],
-                    'bidhigh': pricedata['BidHigh'],
-                    'bidlow': pricedata['BidLow'],
-                    'bidclose': pricedata['BidClose'],
-                    'bidopen': pricedata['BidOpen'], 
-                    'tickqty': pricedata['Volume']         
-                    }
-                        
+            d = {
+                'date': pricedata['Date'],
+                'bidhigh': pricedata['BidHigh'],
+                'bidlow': pricedata['BidLow'],
+                'bidclose': pricedata['BidClose'],
+                'bidopen': pricedata['BidOpen'],
+                'tickqty': pricedata['Volume']
+            }
+
             df = pd.DataFrame(data=d)
             df['timeframe'] = timeframe
             df['date'] = df['date'].astype(str).str.replace('-', '').str.replace(':', '').str.replace(' ', '').str[:-2]
-            df['date']= df['date'].apply(lambda x: int(x))
+            df['date'] = df['date'].apply(lambda x: int(x))
             self.pricedata = self.setIndicators(df)
             self.savePriceDataFile(self.pricedata)
             return self.pricedata
