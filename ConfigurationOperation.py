@@ -1,6 +1,6 @@
 import datetime as dt
 from datetime import datetime
-from pytz import timezone 
+from backports.zoneinfo import ZoneInfo
 
 from threading import Event
 class ConfigurationOperation:
@@ -29,6 +29,6 @@ class ConfigurationOperation:
     peglimittype = 'M'
 
     def __init__(self):   
-        europe_London_datetime = datetime.now( timezone('Europe/London') )
+        europe_London_datetime = datetime.now(ZoneInfo('Europe/London') )
         self.date_from =  europe_London_datetime - dt.timedelta(days=self.days)
         self.date_to = europe_London_datetime

@@ -394,6 +394,73 @@ class RobotPrice:
         df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.greater, order=30)[0]]['value1']
         return df
 
+    def calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate Average True Range (ATR) for volatility measurement."""
+        high = df['bidhigh']
+        low = df['bidlow']
+        close = df['bidclose']
+        
+        tr1 = high - low
+        tr2 = abs(high - close.shift())
+        tr3 = abs(low - close.shift())
+        
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.rolling(window=period).mean()
+        
+        return atr
+
+    def detect_peaks(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Detect price peaks using ATR-based adaptive order."""
+        try:
+            # Create a copy to avoid modifying the original
+            df = df.copy()
+            
+            # Clean the data first
+            df = df.replace([np.inf, -np.inf], np.nan)
+            df = df.dropna(subset=['bidclose', 'bidhigh', 'bidlow'])
+            
+            # Calculate ATR for volatility measurement
+            atr = self.calculate_atr(df, period=14)
+            
+            # Handle any NaN values in ATR
+            atr = atr.fillna(method='ffill').fillna(method='bfill')
+            
+            # Calculate adaptive order based on ATR
+            # Normalize ATR to price level and handle division by zero
+            atr_pct = atr / df['bidclose'].replace(0, np.nan)
+            atr_pct = atr_pct.fillna(0)
+            
+            # Convert to order size (20-40 range) with safe conversion
+            peak_order = (atr_pct * 1000).clip(20, 40)
+            peak_order = peak_order.fillna(30)  # Default to 30 if any NaN remains
+            
+            # Convert peak_order to a single integer value for the entire series
+            # Use the median value to represent the overall volatility
+            order_value = int(peak_order.median())
+            
+            # Detect peaks with the fixed order value
+            min_peaks = signal.argrelextrema(df['bidclose'].values, np.less, order=order_value)
+            max_peaks = signal.argrelextrema(df['bidclose'].values, np.greater, order=order_value)
+            
+            # Initialize peak columns with zeros
+            df['peaks_min'] = 0
+            df['peaks_max'] = 0
+            
+            # Set peaks only where we have valid indices
+            if len(min_peaks[0]) > 0:
+                df.loc[min_peaks[0], 'peaks_min'] = 1
+            if len(max_peaks[0]) > 0:
+                df.loc[max_peaks[0], 'peaks_max'] = 1
+            
+            return df
+            
+        except Exception as e:
+            print(f"Error in detect_peaks: {str(e)}")
+            # Return a safe fallback
+            df['peaks_min'] = 0
+            df['peaks_max'] = 0
+            return df
+
     def setIndicators(self, df):
         # Calculate peaks first
         df = self.calculate_peaks(df)
