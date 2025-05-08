@@ -202,18 +202,6 @@ class RobotPrice:
     def readData(self, instrument, timeframe):
         return pd.read_csv(instrument.replace("/", "_") + '_' + timeframe + '.csv')
         
-    @staticmethod
-    def readPriceDataFileConsolidated(self, timeframe, timeframe_sup):
-        return pd.read_csv(self.instrument.replace("/", "_") + '_' + timeframe + "_" + timeframe_sup + ".csv")
-
-    def getPricesConsolidated(self, instrument, timeframe, timeframe_sup, timeframe_sup2):
-        pricedata_inf = self.readData(instrument, timeframe)
-        pricedata_sup = self.readData(instrument, timeframe_sup)        
-        pricedata_sup2 = self.readData(instrument, timeframe_sup2)
-        pricedata = pd.concat([pricedata_sup2 , pricedata_sup, pricedata_inf], ignore_index=True)
-        pricedata = pricedata.sort_values(by='date').reset_index(drop=True)
-        return pricedata     
-        
     def calculate_linear_regression(self, df: pd.DataFrame, column: str) -> pd.Series:
         """Calculate linear regression for a given column in the DataFrame."""
         if len(df) > 1:  # Ensure there are enough data points
@@ -223,38 +211,19 @@ class RobotPrice:
             return coeffs[0] * x + coeffs[1]  # y = mx + b
         return pd.Series(np.nan, index=df.index)  # Return NaN if not enough data
 
-    def apply_sell_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply the sell strategy to the DataFrame, considering the 100-period EMA and deviation zones."""
-        df['sell'] = 0
-        operationActive = False
-        for index, row in df.iterrows():
-            # Only consider sell operations below the 100-period EMA and near a deviation zone
-            if not operationActive and df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'deviation_zone'] == 1:
-                operationActive = True
-                df.loc[index, 'sell'] = 1  # Open sell operation
-            # Only consider buy operations above the 100-period EMA and near a deviation zone
-            elif operationActive and df.loc[index, 'peaks_min'] == 1:
-                df.loc[index, 'sell'] = -1  # Close sell operation
-                operationActive = False
-        return df
+    def calculate_price_median(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Refine the calculation to make it slightly more sensitive
+        df['price_median'] = (
+            df['bidclose'] * 0.35 +  # Slightly higher weight to bidclose
+            df['bidopen'] * 0.25 +  # Moderate weight to bidopen
+            df['bidhigh'] * 0.2 +  # Lower weight to bidhigh
+            df['bidlow'] * 0.2    # Equal weight to bidhigh and bidlow
+        )
 
-    def apply_buy_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply the buy strategy to the DataFrame, considering the 100-period EMA and deviation zones."""
-        df['buy'] = 0
-        operationActive = False
-        for index, row in df.iterrows():
-            # Only consider buy operations above the 100-period EMA and near a deviation zone
-            if not operationActive and df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'deviation_zone'] == 1:
-                operationActive = True
-                df.loc[index, 'buy'] = 1  # Open buy operation
-            # Only consider sell operations below the 100-period EMA and near a deviation zone
-            elif operationActive and df.loc[index, 'peaks_max'] == 1 :
-                df.loc[index, 'buy'] = -1  # Close buy operation
-                operationActive = False
         return df
 
     def calculate_rsi(self, df: pd.DataFrame, column: str) -> pd.Series:
-        """Calculate the RSI for a given column in the DataFrame."""
+
         # Determine RSI window based on timeframe
         if self.timeframe in ["m1", "m5"]:
             rsi_window = 7  # Shorter window for lower timeframes
@@ -272,65 +241,168 @@ class RobotPrice:
         rs = gain / loss
         return 100 - (100 / (1 + rs))
 
-    def calculate_price_median(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate a slightly more sensitive median price by refining the calculation."""
-        required_columns = ['bidclose', 'bidopen', 'bidhigh', 'bidlow']
+    def apply_triggers_strategy(self, df: pd.DataFrame, strategy_type: str) -> pd.DataFrame:
+        # Añadir filtro de tendencia
+        last_trend = df['trend'].iloc[-1]
+        
+        # Añadir filtro de RSI
+        last_rsi = df['rsi'].iloc[-1]
+        
+        # Añadir filtro de EMA
+        ema_above_slow = df['ema'].iloc[-1] > df['ema_slow'].iloc[-1]
 
-        # Ensure all required columns are present
-        if not all(col in df.columns for col in required_columns):
-            raise ValueError(f"DataFrame must contain the following columns: {required_columns}")
-
-        # Refine the calculation to make it slightly more sensitive
-        df['price_median'] = (
-            df['bidclose'] * 0.35 +  # Slightly higher weight to bidclose
-            df['bidopen'] * 0.25 +  # Moderate weight to bidopen
-            df['bidhigh'] * 0.2 +  # Lower weight to bidhigh
-            df['bidlow'] * 0.2    # Equal weight to bidhigh and bidlow
-        )
-
+        # Constants for signal values
+        SIGNAL_OPEN = 1
+        SIGNAL_CLOSE = -1
+        SIGNAL_NEUTRAL = 0
+        
+        signal_column = strategy_type
+        df[signal_column] = SIGNAL_NEUTRAL
+        
+        open_condition = 'peaks_min' if strategy_type == 'buy' else 'peaks_max'
+        close_condition = 'peaks_max' if strategy_type == 'buy' else 'peaks_min'
+        
+        open_signals = df[open_condition] == 1
+        close_signals = df[close_condition] == 1
+        
+        is_position_open = False
+        
+        for i in range(len(df)):
+            if not is_position_open and open_signals.iloc[i]:
+                # Apply filters for buy signals
+                if strategy_type == 'buy':
+                   if (#last_trend == 1 and  # Tendencia alcista
+                        last_rsi < 70 and     # RSI no sobrecomprado
+                        ema_above_slow):       # EMA rápida por encima de la lenta
+                        is_position_open = True
+                        df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
+                # Apply filters for sell signals
+                else:
+                    if (#last_trend == -1 and  # Tendencia bajista
+                        last_rsi > 30 and      # RSI no sobrevendido
+                        not ema_above_slow):   # EMA rápida por debajo de la lenta
+                        is_position_open = True
+                        df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
+            elif is_position_open and close_signals.iloc[i]:
+                is_position_open = False
+                df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE
+                
         return df
 
-    def identify_price_deviation_zones(self, df: pd.DataFrame, threshold: float = 0.0005) -> pd.DataFrame:
-        """Identify zones where the price deviates significantly from its median and mark them."""
-        df['deviation_zone'] = 0
+    def evaluate_triggers_signals(self, df):
+        buy_signal = any((df.loc[index, 'buy'] == 1) for index in df.tail(6).head(4).index)
+        sell_signal = any((df.loc[index, 'sell'] == 1) for index in df.tail(6).head(4).index)
 
-        # Adjust the threshold to make detection more sensitive
-        df['deviation_zone'] = (
-            (df['bidclose'] - df['price_median']).abs() > threshold
-        ).astype(int)
+        # Execute trades based on signals
+        if buy_signal:
+            if self.existingOperation(instrument=self.instrument, BuySell="S"):
+                self.CloseOperation(instrument=self.instrument, BuySell="S")
+            if not self.existingOperation(instrument=self.instrument, BuySell="B"):
+                self.createEntryOrder(str_buy_sell="B")
+                
+        if sell_signal:
+            if self.existingOperation(instrument=self.instrument, BuySell="B"):
+                self.CloseOperation(instrument=self.instrument, BuySell="B")
+            if not self.existingOperation(instrument=self.instrument, BuySell="S"):
+                self.createEntryOrder(str_buy_sell="S")
 
-        # Add a condition to detect zones where the price is consistently above or below the median
-        df['deviation_zone'] |= (
-            (df['bidclose'] > df['price_median'] * 1.0002) | (df['bidclose'] < df['price_median'] * 0.9998)
-        ).astype(int)
-
+    def calculate_trend(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['trend'] = 0
+        df['trend_line'] = df['bidclose']  # Initialize trend_line with bidclose prices
+        window_size = 7  # Increased window size for more confirmation
+        
+        # Calculate volume moving average for volume confirmation
+        df['volume_ma'] = df['tickqty'].rolling(window=20).mean()
+        
+        # Calculate volatility using ATR-like measure
+        df['high_low_range'] = df['bidhigh'] - df['bidlow']
+        df['volatility'] = df['high_low_range'].rolling(window=14).mean()
+        
+        # Get indices of peaks
+        peak_min_indices = df[df['peaks_min'] == 1].index
+        peak_max_indices = df[df['peaks_max'] == 1].index
+        
+        # Combine and sort all peaks
+        all_peaks = sorted(list(peak_min_indices) + list(peak_max_indices))
+        
+        for i in range(len(all_peaks) - window_size + 1):
+            window_peaks = all_peaks[i:i + window_size]
+            window_data = df.loc[window_peaks]
+            
+            # Calculate trend slope
+            if len(window_peaks) >= 2:
+                x = np.arange(len(window_peaks))
+                y = window_data['bidclose'].values
+                slope, _ = np.polyfit(x, y, 1)
+            else:
+                slope = 0
+            
+            # Count higher highs and higher lows for uptrend
+            higher_highs = sum(1 for j in range(1, len(window_peaks)) 
+                             if window_data.loc[window_peaks[j], 'bidhigh'] > 
+                                window_data.loc[window_peaks[j-1], 'bidhigh'])
+            
+            higher_lows = sum(1 for j in range(1, len(window_peaks)) 
+                            if window_data.loc[window_peaks[j], 'bidlow'] > 
+                               window_data.loc[window_peaks[j-1], 'bidlow'])
+            
+            # Count lower highs and lower lows for downtrend
+            lower_highs = sum(1 for j in range(1, len(window_peaks)) 
+                            if window_data.loc[window_peaks[j], 'bidhigh'] < 
+                               window_data.loc[window_peaks[j-1], 'bidhigh'])
+            
+            lower_lows = sum(1 for j in range(1, len(window_peaks)) 
+                           if window_data.loc[window_peaks[j], 'bidlow'] < 
+                              window_data.loc[window_peaks[j-1], 'bidlow'])
+            
+            # Volume confirmation
+            volume_increasing = window_data['tickqty'].mean() > window_data['volume_ma'].mean()
+            
+            # Volatility check
+            current_volatility = window_data['volatility'].iloc[-1]
+            avg_volatility = df['volatility'].mean()
+            volatility_ok = current_volatility <= avg_volatility * 1.5  # Allow 50% more volatility than average
+            
+            # Determine trend for this window with stricter conditions
+            if (higher_highs >= 4 and higher_lows >= 4 and  # Increased required number of higher highs/lows
+                slope > 0 and  # Positive slope required
+                volume_increasing and  # Volume confirmation
+                volatility_ok):  # Volatility check
+                df.loc[window_peaks, 'trend'] = 1  # Uptrend
+                # For uptrend, trend_line follows the higher lows
+                df.loc[window_peaks, 'trend_line'] = df.loc[window_peaks, 'bidlow'].rolling(window=2).min()
+            elif (lower_highs >= 4 and lower_lows >= 4 and  # Increased required number of lower highs/lows
+                  slope < 0 and  # Negative slope required
+                  volume_increasing and  # Volume confirmation
+                  volatility_ok):  # Volatility check
+                df.loc[window_peaks, 'trend'] = -1  # Downtrend
+                # For downtrend, trend_line follows the lower highs
+                df.loc[window_peaks, 'trend_line'] = df.loc[window_peaks, 'bidhigh'].rolling(window=2).max()
+            else:
+                df.loc[window_peaks, 'trend'] = 0  # Ranging
+                # For ranging, trend_line follows the middle of the range
+                df.loc[window_peaks, 'trend_line'] = (df.loc[window_peaks, 'bidhigh'] + df.loc[window_peaks, 'bidlow']) / 2
+        
+        # Forward fill the trend_line values to create a continuous line
+        df['trend_line'] = df['trend_line'].fillna(method='ffill')
+        
         return df
 
-    def evaluate_trading_signals(self, df):
-        """Evaluate trading signals and execute operations based on peaks and deviation zones."""
-        triggers = {
-            "S": any((df.loc[index, 'peaks_max'] == 1 and df.loc[index, 'deviation_zone'] == 1) for index in df.tail(4).index),
-            "B": any((df.loc[index, 'peaks_min'] == 1 and df.loc[index, 'deviation_zone'] == 1) for index in df.tail(4).index),
-        }
-
-        for buy_sell, trigger in triggers.items():
-            if trigger:
-                opposite = "B" if buy_sell == "S" else "S"
-                if self.existingOperation(instrument=self.instrument, BuySell=opposite):
-                    self.CloseOperation(instrument=self.instrument, BuySell=opposite)
-                print(f"{'SELL' if buy_sell == 'S' else 'BUY'} OPERATION!")
-                if not self.existingOperation(instrument=self.instrument, BuySell=buy_sell):
-                    self.createEntryOrder(str_buy_sell=buy_sell)
+    def calculate_peaks(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['value1'] = 1
+        df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.less, order=30)[0]]['value1']
+        df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.greater, order=30)[0]]['value1']
+        return df
 
     def setIndicators(self, df):
-        df['value1'] = 1
-        # Find local peaks
-        df['ema'] = df['bidclose'].ewm(span=3).mean()
-        df['ema_slow'] = df['bidclose'].ewm(span=30).mean()
-        df['ema_100'] = df['bidclose'].ewm(span=80).mean()  # Add 100-period EMA
+        # Calculate peaks first
+        df = self.calculate_peaks(df)
+        
+        # Calculate trend first
+        df = self.calculate_trend(df)
 
-        df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.less,order=30)[0]]['value1']
-        df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values,np.greater,order=30)[0]]['value1']
+        df['ema'] = df['bidclose'].ewm(span=100).mean()
+        df['ema_slow'] = df['bidclose'].ewm(span=1000).mean()
 
         # Add RSI indicator
         df['rsi'] = self.calculate_rsi(df, 'bidclose')
@@ -341,15 +413,12 @@ class RobotPrice:
         # Calculate median price
         df = self.calculate_price_median(df)
                 
-        # Identify price deviation zones
-        df = self.identify_price_deviation_zones(df)
-                
         # Apply sell and buy strategies
-        df = self.apply_sell_strategy(df)
-        df = self.apply_buy_strategy(df)
+        df = self.apply_triggers_strategy(df, 'buy')
+        df = self.apply_triggers_strategy(df, 'sell')
 
-        # Evaluate trading signals after applying strategies
-        self.evaluate_trading_signals(df)
+        # Evaluate trading signals after calculating trend
+        self.evaluate_triggers_signals(df)
 
         return df
 

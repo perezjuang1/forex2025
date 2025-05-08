@@ -48,10 +48,11 @@ class ForexPlotter:
         """Initialize all plot lines"""
         # Price lines
         self.price_line, = self.ax.plot([], [], linestyle='dotted', color='#00ff00', label='Price')
-        self.ema_line, = self.ax.plot([], [], linestyle='dotted', color='#ff00ff', label='Moving Average')
-          # Add 100-period EMA line
-        self.ema_100_line, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='EMA 100')
+        self.ema_line, = self.ax.plot([], [], linestyle='dotted', color='#ff00ff', label='EMA Moving Average')
         self.ema_slow_line, = self.ax.plot([], [], linestyle='solid', color='#00ffff', label='EMA Slow')
+
+        # Add trend line
+        self.trend_line, = self.ax.plot([], [], linestyle='solid', color='red', label='Trend', alpha=0.3)
 
         # Peak markers
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
@@ -71,7 +72,7 @@ class ForexPlotter:
         self.trigger_close_sell, = self.ax.plot([], [], '*', color='#ff0000', label='Close Sell Trigger')
 
   # Add price_regression line
-        self.price_regression_line, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Price Regression')
+        #self.price_regression_line, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Price Regression')
      
         # Add median line
         self.median_line, = self.ax.plot([], [], linestyle='dotted', color='#ffa500', label='Price Median')
@@ -109,22 +110,6 @@ class ForexPlotter:
             print(f"Error loading data: {str(e)}")
             return pd.DataFrame()
             
-    def highlight_deviation_zones(self, df_view: pd.DataFrame) -> None:
-        """Highlight zones where the price deviates significantly from its median based on the highest and lowest values."""
-        # Obtener el valor más alto y más bajo del DataFrame
-        min_price = df_view['bidclose'].min()
-        max_price = df_view['bidclose'].max()
-
-        # Resaltar las zonas de desviación
-        for index, row in df_view.iterrows():
-            if row['deviation_zone'] == 1:
-                # Normalizar los límites verticales (ymin y ymax) en función del rango de precios
-                ymin = (row['bidclose'] - min_price) / (max_price - min_price) - 0.80 # Ajustar para dar altura
-                ymax = (row['bidclose'] - min_price) / (max_price - min_price) + 0.80  # Ajustar para dar altura
-                ymin = max(0, ymin)  # Asegurarse de que ymin no sea menor que 0
-                ymax = min(1, ymax)  # Asegurarse de que ymax no sea mayor que 1
-                self.ax.axvspan(index - 0.5, index + 0.5, color='gray', alpha=0.4, ymin=ymin, ymax=ymax)
-
     def update_plot(self, frame: int) -> List[plt.Line2D]:
         """Update the plot for each animation frame"""
         current_time = datetime.now().timestamp()
@@ -152,6 +137,9 @@ class ForexPlotter:
             if df_view.empty:
                 print("No data in the current view range")
                 return []
+
+            # Update trend line with the new trend_line column
+            self.trend_line.set_data(df_view.index, df_view['trend_line'])
             
             # Update price and EMA lines
             self.price_line.set_data(df_view.index, df_view['bidclose'])
@@ -170,10 +158,7 @@ class ForexPlotter:
                                       df_view[df_view['sell'] == 1.0]['bidclose'])
             
             # Update price_regression line
-            self.price_regression_line.set_data(df_view.index, df_view['price_regression'])
-
-            # Update 100-period EMA line
-            self.ema_100_line.set_data(df_view.index, df_view['ema_100'])
+            #self.price_regression_line.set_data(df_view.index, df_view['price_regression'])
 
             # Update slow EMA line
             self.ema_slow_line.set_data(df_view.index, df_view['ema_slow'])
@@ -189,15 +174,16 @@ class ForexPlotter:
             # Update median price line
             self.median_line.set_data(df_view.index, df_view['price_median'])
 
-            # Highlight deviation zones
-            self.highlight_deviation_zones(df_view)
-
             # Adjust y-axis limits dynamically based on visible data
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
             
-            return [self.price_line, self.ema_line, self.ema_100_line, self.ema_slow_line, self.peaks_min_inf, 
+            return [self.price_line, self.ema_line,
+                    self.ema_slow_line, 
+                    self.peaks_min_inf, 
                     self.peaks_max_inf, self.trigger_buy, self.trigger_sell, self.trigger_close_buy, 
-                    self.trigger_close_sell, self.price_regression_line, self.median_line]
+                    self.trigger_close_sell, 
+                    #self.price_regression_line, 
+                    self.median_line, self.trend_line]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
