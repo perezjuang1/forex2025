@@ -47,5 +47,5 @@ class Trading:
 
 # Example usage
 if __name__ == "__main__":
-    trading = Trading(days=10, timeframe='m5', instrument="EUR/USD")
+    trading = Trading(days=7, timeframe='m5', instrument="EUR/USD")
     trading.start_trade_monitor()

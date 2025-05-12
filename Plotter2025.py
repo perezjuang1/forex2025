@@ -75,7 +75,7 @@ class ForexPlotter:
         #self.price_regression_line, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Price Regression')
      
         # Add median line
-        self.median_line, = self.ax.plot([], [], linestyle='dotted', color='#ffa500', label='Price Median')
+        #self.median_line, = self.ax.plot([], [], linestyle='dotted', color='#ffa500', label='Price Median')
 
         # Add legend with white text
         legend = self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
@@ -172,7 +172,11 @@ class ForexPlotter:
                                              df_view[df_view['sell'] == -1.0]['bidclose'])
 
             # Update median price line
-            self.median_line.set_data(df_view.index, df_view['price_median'])
+            
+            #if 'price_median' in df_view.columns:
+            #    self.median_line.set_data(df_view.index, df_view['price_median'])
+            #else:
+            #    print("Warning: price_median column not found in data")
 
             # Adjust y-axis limits dynamically based on visible data
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
@@ -183,7 +187,8 @@ class ForexPlotter:
                     self.peaks_max_inf, self.trigger_buy, self.trigger_sell, self.trigger_close_buy, 
                     self.trigger_close_sell, 
                     #self.price_regression_line, 
-                    self.median_line, self.trend_line]
+                    #self.median_line, 
+                    self.trend_line]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
@@ -211,6 +216,7 @@ class ForexPlotter:
             blit=True
         )
         plt.show()
+
 
 def main():
     """Main function to run the plotter"""
