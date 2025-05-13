@@ -3,7 +3,7 @@ from Price import RobotPrice
 import datetime as dt
 import time
 import numpy as np
-
+import traceback
 
 class Trading:
     def __init__(self, days, timeframe='m5', instrument="EUR/USD"):
@@ -41,11 +41,25 @@ class Trading:
             time.sleep(1)
 
     def operation_detection(self, timeframe): 
+        try:
             df = self._robot_price.getPriceData(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
-            #"""print("Price Data Received..." + str(timeframe) + " " + str(self.instrument) + " " + str(dt.datetime.now()))
-            #"""print("Price Data Length: " + str(len(df)) + " " + str(df))""
+        except Exception as e:
+            print("Exception: " + str(e))
+            print(traceback.format_exc())
+            raise 
 
 # Example usage
 if __name__ == "__main__":
-    trading = Trading(days=7, timeframe='m5', instrument="EUR/USD")
-    trading.start_trade_monitor()
+    while True:
+        trading = None
+        try:
+            time.sleep(5)  # Esperar antes de reiniciar
+            trading = Trading(days=7, timeframe='m5', instrument="EUR/USD")
+            trading.start_trade_monitor()
+        except Exception as e:
+            print("Fatal error occurred. Restarting Trading session...")
+            print(traceback.format_exc())
+            del trading  # Forzar destructor
+            print("20 seconds to restar...")
+            time.sleep(240)  # Esperar antes de reiniciar
+

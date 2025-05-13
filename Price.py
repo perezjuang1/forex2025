@@ -532,31 +532,30 @@ class RobotPrice:
         europe_London_datetime = datetime.now(ZoneInfo('Europe/London'))  # Uso de ZoneInfo
         date_from = europe_London_datetime - dt.timedelta(days=days)
         date_to = europe_London_datetime
-        try:
-            history = connection.get_history(instrument, timeframe, date_from, date_to)
-            current_unit, _ = connection.parse_timeframe(timeframe)
-            print("Price Data Received..." + str(current_unit) + " " + str(timeframe) + " " + str(instrument) + " " + str(europe_London_datetime))
 
-            pricedata = pd.DataFrame(history, columns=["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
+        history = connection.get_history(instrument, timeframe, date_from, date_to)
+        current_unit, _ = connection.parse_timeframe(timeframe)
+        print("Price Data Received..." + str(current_unit) + " " + str(timeframe) + " " + str(instrument) + " " + str(europe_London_datetime))
 
-            d = {
-                'date': pricedata['Date'],
-                'bidhigh': pricedata['BidHigh'],
-                'bidlow': pricedata['BidLow'],
-                'bidclose': pricedata['BidClose'],
-                'bidopen': pricedata['BidOpen'],
-                'tickqty': pricedata['Volume']
-            }
+        pricedata = pd.DataFrame(history, columns=["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
 
-            df = pd.DataFrame(data=d)
-            df['timeframe'] = timeframe
-            df['date'] = df['date'].astype(str).str.replace('-', '').str.replace(':', '').str.replace(' ', '').str[:-2]
-            df['date'] = df['date'].apply(lambda x: int(x))
-            self.pricedata = self.setIndicators(df)
-            self.savePriceDataFile(self.pricedata)
-            return self.pricedata
-        except Exception as e:
-            print("Exception: " + str(e))
+        d = {
+            'date': pricedata['Date'],
+            'bidhigh': pricedata['BidHigh'],
+            'bidlow': pricedata['BidLow'],
+            'bidclose': pricedata['BidClose'],
+            'bidopen': pricedata['BidOpen'],
+            'tickqty': pricedata['Volume']
+        }
+
+        df = pd.DataFrame(data=d)
+        df['timeframe'] = timeframe
+        df['date'] = df['date'].astype(str).str.replace('-', '').str.replace(':', '').str.replace(' ', '').str[:-2]
+        df['date'] = df['date'].apply(lambda x: int(x))
+        self.pricedata = self.setIndicators(df)
+        self.savePriceDataFile(self.pricedata)
+        return self.pricedata
+
 
     def setMonitorPriceData(self):
         self.getPriceData(instrument=self.instrument, timeframe=self.timeframe, days=self.days,connection=self.connection)
