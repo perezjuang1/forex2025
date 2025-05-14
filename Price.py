@@ -202,14 +202,15 @@ class RobotPrice:
     def readData(self, instrument, timeframe):
         return pd.read_csv(instrument.replace("/", "_") + '_' + timeframe + '.csv')
         
-    def calculate_linear_regression(self, df: pd.DataFrame, column: str) -> pd.Series:
-        """Calculate linear regression for a given column in the DataFrame."""
+    """ def calculate_linear_regression(self, df: pd.DataFrame, column: str) -> pd.Series:
+        #Calculate linear regression for a given column in the DataFrame.
         if len(df) > 1:  # Ensure there are enough data points
             x = np.arange(len(df))  # Use index as x-axis
             y = df[column]
             coeffs = np.polyfit(x, y, 1)  # Linear regression (degree 1)
             return coeffs[0] * x + coeffs[1]  # y = mx + b
         return pd.Series(np.nan, index=df.index)  # Return NaN if not enough data
+    """
 
     def calculate_price_median(self, df: pd.DataFrame) -> pd.DataFrame:
         # Refine the calculation to make it slightly more sensitive
@@ -492,8 +493,8 @@ class RobotPrice:
         df = self.calculate_trend(df)
 
         # Calcular EMAs
-        df['ema'] = df['bidclose'].ewm(span=100).mean()
-        df['ema_slow'] = df['bidclose'].ewm(span=1000).mean()
+        df['ema'] = df['bidclose'].ewm(span=50).mean()
+        df['ema_slow'] = df['bidclose'].ewm(span=100).mean()
 
         # Calcular RSI
         df['rsi'] = self.calculate_rsi(df, 'bidclose')
@@ -518,6 +519,9 @@ class RobotPrice:
                     df.loc[df.index[i], 'climax_type'] = 1  # Clímax de compra
                 else:
                     df.loc[df.index[i], 'climax_type'] = -1  # Clímax de venta
+
+        # Calcular líneas de regresión por secciones
+        df = self.calculate_section_regressions(df)
 
         # Aplicar estrategias
         df = self.apply_triggers_strategy(df, 'buy')
@@ -626,5 +630,80 @@ class RobotPrice:
                 # Clímax de venta - posible señal de compra
                 elif df['climax_type'].iloc[i] == -1:
                     df.loc[df.index[i], 'climax_signal'] = 1
+        
+        return df
+
+    def calculate_section_regressions(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calcula líneas de regresión para 15 secciones del DataFrame.
+        Retorna un DataFrame con las líneas de regresión calculadas, la sección a la que pertenece cada punto
+        y el tipo de tendencia de la regresión (alcista, bajista o neutra).
+        """
+        # Crear una copia del DataFrame para no modificar el original
+        df = df.copy()
+        
+        # Calcular el tamaño de cada sección
+        section_size = len(df) // 15
+        
+        # Inicializar columnas para las líneas de regresión
+        df['regression_line_1'] = np.nan
+        df['regression_line_2'] = np.nan
+        df['regression_line_3'] = np.nan
+        df['regression_line_4'] = np.nan
+        df['regression_line_5'] = np.nan
+        df['regression_line_6'] = np.nan
+        df['regression_line_7'] = np.nan
+        df['regression_line_8'] = np.nan
+        df['regression_line_9'] = np.nan
+        df['regression_line_10'] = np.nan
+        df['regression_line_11'] = np.nan
+        df['regression_line_12'] = np.nan
+        df['regression_line_13'] = np.nan
+        df['regression_line_14'] = np.nan
+        df['regression_line_15'] = np.nan
+        
+        # Inicializar columnas para identificar la sección y la tendencia
+        df['regression_section'] = 0
+        df['regression_trend'] = 'neutral'  # 'bullish', 'bearish', 'neutral'
+        
+        # Calcular regresión para cada sección
+        for i in range(15):
+            start_idx = i * section_size
+            end_idx = start_idx + section_size if i < 14 else len(df)
+            
+            # Obtener la sección actual
+            section = df.iloc[start_idx:end_idx]
+            
+            # Calcular la regresión lineal
+            x = np.arange(len(section))
+            y = section['bidclose'].values
+            
+            # Usar polyfit para calcular la línea de regresión
+            slope, intercept = np.polyfit(x, y, 1)
+            
+            # Calcular los valores de la línea de regresión
+            regression_line = slope * x + intercept
+            
+            # Asignar los valores al DataFrame original
+            df.iloc[start_idx:end_idx, df.columns.get_loc(f'regression_line_{i+1}')] = regression_line
+            
+            # Marcar la sección a la que pertenece cada punto
+            df.iloc[start_idx:end_idx, df.columns.get_loc('regression_section')] = i + 1
+            
+            # Calcular el rango de precios en la sección
+            price_range = section['bidclose'].max() - section['bidclose'].min()
+            
+            # Calcular el umbral dinámico basado en el rango de precios
+            # El umbral será el 0.1% del rango de precios
+            slope_threshold = price_range * 0.001
+            
+            # Determinar la tendencia basada en la pendiente
+            if abs(slope) < slope_threshold:
+                trend = 'neutral'
+            else:
+                trend = 'bullish' if slope > 0 else 'bearish'
+                
+            # Asignar la tendencia a todos los puntos de la sección
+            df.iloc[start_idx:end_idx, df.columns.get_loc('regression_trend')] = trend
         
         return df
