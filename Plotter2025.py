@@ -73,7 +73,7 @@ class ForexPlotter:
 
         # Peak markers
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
-        self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#ff6666', label='Max Peaks')
+        self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='orange', label='Max Peaks')
        
         # Trigger markers
         self.trigger_buy, = self.ax.plot([], [], '^', color='#00ff00', label='Buy Trigger')

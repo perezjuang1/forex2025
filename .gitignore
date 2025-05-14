@@ -163,3 +163,5 @@ EUR_USD_m5.csv
 /History
 EUR_USD_m5.csv
 /env1
+*.sqlite
+/History

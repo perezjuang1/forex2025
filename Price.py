@@ -245,12 +245,7 @@ class RobotPrice:
     def apply_triggers_strategy(self, df: pd.DataFrame, strategy_type: str) -> pd.DataFrame:
         # Añadir filtro de tendencia
         last_trend = df['trend'].iloc[-1]
-        
-        # Añadir filtro de RSI
-        last_rsi = df['rsi'].iloc[-1]
-        
-        # Añadir filtro de EMA
-        ema_above_slow = df['ema'].iloc[-1] > df['ema_slow'].iloc[-1]
+    
 
         # Constants for signal values
         SIGNAL_OPEN = 1
@@ -278,9 +273,10 @@ class RobotPrice:
                         df['climax_type'].iloc[i] == -1  # Clímax de venta (señal de compra)
                     )
                     
-                    if (#last_rsi < 70 and     # RSI no sobrecomprado
-                        ema_above_slow and     # EMA rápida por encima de la lenta
-                        (climax_condition or df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])):  # Volumen confirmando
+                    if (df['rsi'].iloc[i] < 70 and     # RSI no sobrecomprado
+                        df.loc[i, 'MediaPositionBuy'] == 1# and  # EMA rápida por encima de la lenta
+                        #(climax_condition and df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])  # Volumen confirmando
+                        ):
                         is_position_open = True
                         df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
                         
@@ -292,17 +288,18 @@ class RobotPrice:
                         df['climax_type'].iloc[i] == 1  # Clímax de compra (señal de venta)
                     )
                     
-                    if (#last_rsi > 30 and      # RSI no sobrevendido
-                        not ema_above_slow and  # EMA rápida por debajo de la lenta
-                        (climax_condition or df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])):  # Volumen confirmando
+                    if (df['rsi'].iloc[i] > 30 and      # RSI no sobrevendido
+                        df.loc[i, 'MediaPositionSell'] == 1 #and  # EMA rápida por debajo de la lenta
+                        #(climax_condition and df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])  # Volumen confirmando
+                        ):
                         is_position_open = True
                         df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
                         
             elif is_position_open and close_signals.iloc[i]:
                 # Cerrar posición si hay clímax de volumen contrario
                 if strategy_type == 'buy':
-                    #if (df['volume_climax'].iloc[i] == 1 and 
-                    #    df['climax_type'].iloc[i] == 1):  # Clímax de compra (señal de venta)
+                    #if (#df['volume_climax'].iloc[i] == 1 and 
+                    #    df['climax_type'].iloc[i] == 1  # Clímax de compra (señal de venta)
                         is_position_open = False
                         df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE
                 else:
@@ -495,6 +492,9 @@ class RobotPrice:
         # Calcular EMAs
         df['ema'] = df['bidclose'].ewm(span=50).mean()
         df['ema_slow'] = df['bidclose'].ewm(span=100).mean()
+
+        df['MediaPositionSell'] = np.where( (df['ema'] < df['ema_slow']), 1, 0 )
+        df['MediaPositionBuy'] = np.where( (df['ema'] > df['ema_slow']), 1, 0)
 
         # Calcular RSI
         df['rsi'] = self.calculate_rsi(df, 'bidclose')
