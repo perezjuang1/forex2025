@@ -201,16 +201,6 @@ class RobotPrice:
 
     def readData(self, instrument, timeframe):
         return pd.read_csv(instrument.replace("/", "_") + '_' + timeframe + '.csv')
-        
-    """ def calculate_linear_regression(self, df: pd.DataFrame, column: str) -> pd.Series:
-        #Calculate linear regression for a given column in the DataFrame.
-        if len(df) > 1:  # Ensure there are enough data points
-            x = np.arange(len(df))  # Use index as x-axis
-            y = df[column]
-            coeffs = np.polyfit(x, y, 1)  # Linear regression (degree 1)
-            return coeffs[0] * x + coeffs[1]  # y = mx + b
-        return pd.Series(np.nan, index=df.index)  # Return NaN if not enough data
-    """
 
     def calculate_price_median(self, df: pd.DataFrame) -> pd.DataFrame:
         # Refine the calculation to make it slightly more sensitive
@@ -243,10 +233,6 @@ class RobotPrice:
         return 100 - (100 / (1 + rs))
 
     def apply_triggers_strategy(self, df: pd.DataFrame, strategy_type: str) -> pd.DataFrame:
-        # Añadir filtro de tendencia
-        last_trend = df['trend'].iloc[-1]
-    
-
         # Constants for signal values
         SIGNAL_OPEN = 1
         SIGNAL_CLOSE = -1
@@ -268,32 +254,38 @@ class RobotPrice:
                 # Apply filters for buy signals
                 if strategy_type == 'buy':
                     # Verificar clímax de volumen para compras
-                    climax_condition = (
-                        df['volume_climax'].iloc[i] == 1 and 
-                        df['climax_type'].iloc[i] == -1  # Clímax de venta (señal de compra)
-                    )
+                    #climax_condition = (
+                    #    df['volume_climax'].iloc[i] == 1 and 
+                    #    df['climax_type'].iloc[i] == -1  # Clímax de venta (señal de compra)
+                    #)
                     
-                    if (df['rsi'].iloc[i] < 70 and     # RSI no sobrecomprado
-                        df.loc[i, 'MediaPositionBuy'] == 1# and  # EMA rápida por encima de la lenta
+                    #if (#df['rsi'].iloc[i] < 70 and     # RSI no sobrecomprado
+                    #    df.loc[i, 'MediaPositionBuy'] == 1 and  # EMA rápida por encima de la lenta
+                        #df.loc[i, 'regression_trend'] == "bullish" 
                         #(climax_condition and df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])  # Volumen confirmando
-                        ):
+                    #    climax_condition
+                    
+                    #    ):
                         is_position_open = True
                         df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
                         
                 # Apply filters for sell signals
                 else:
                     # Verificar clímax de volumen para ventas
-                    climax_condition = (
-                        df['volume_climax'].iloc[i] == 1 and 
-                        df['climax_type'].iloc[i] == 1  # Clímax de compra (señal de venta)
-                    )
+                    #climax_condition = (
+                    #    df['volume_climax'].iloc[i] == 1 and 
+                    #    df['climax_type'].iloc[i] == 1  # Clímax de compra (señal de venta)
+                    #)
                     
-                    if (df['rsi'].iloc[i] > 30 and      # RSI no sobrevendido
-                        df.loc[i, 'MediaPositionSell'] == 1 #and  # EMA rápida por debajo de la lenta
+                    #if (df['rsi'].iloc[i] > 30 and      # RSI no sobrevendido
+                    #    df['peaks_max'].iloc[i] == 1 #and
+                    #    df.loc[i, 'MediaPositionSell'] == 1 and
+                        #df.loc[i, 'regression_trend'] == "bearish"   # EMA rápida por debajo de la lenta
                         #(climax_condition and df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])  # Volumen confirmando
-                        ):
-                        is_position_open = True
-                        df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
+                        
+                    #    ):
+                            is_position_open = True
+                            df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
                         
             elif is_position_open and close_signals.iloc[i]:
                 # Cerrar posición si hay clímax de volumen contrario
@@ -311,8 +303,12 @@ class RobotPrice:
         return df
 
     def evaluate_triggers_signals(self, df):
-        buy_signal = any((df.loc[index, 'buy'] == 1) for index in df.tail(6).head(4).index)
-        sell_signal = any((df.loc[index, 'sell'] == 1) for index in df.tail(6).head(4).index)
+        # Selecciona las filas de interés: de la -6 a la -2 (excluyendo las dos últimas)
+        recent_rows = df.iloc[-6:-4]
+
+        # Señales
+        buy_signal = (recent_rows['buy'] == 1).any()
+        sell_signal = (recent_rows['sell'] == 1).any()
 
         # Execute trades based on signals
         if buy_signal:
