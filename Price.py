@@ -215,15 +215,7 @@ class RobotPrice:
 
     def calculate_rsi(self, df: pd.DataFrame, column: str) -> pd.Series:
 
-        # Determine RSI window based on timeframe
-        if self.timeframe in ["m1", "m5"]:
-            rsi_window = 7  # Shorter window for lower timeframes
-        elif self.timeframe in ["m15", "m30"]:
-            rsi_window = 14  # Standard window for medium timeframes
-        elif self.timeframe in ["H1", "H4"]:
-            rsi_window = 21  # Longer window for higher timeframes
-        else:
-            rsi_window = 14  # Default fallback
+        rsi_window = 14  # Default fallback
 
         # Calculate RSI
         delta = df[column].diff()
@@ -259,13 +251,13 @@ class RobotPrice:
                     #    df['climax_type'].iloc[i] == -1  # Clímax de venta (señal de compra)
                     #)
                     
-                    #if (#df['rsi'].iloc[i] < 70 and     # RSI no sobrecomprado
+                    if (df['rsi'].iloc[i] > 30 and df['rsi'].iloc[i] < 70 and     # RSI no sobrecomprado
                     #    df.loc[i, 'MediaPositionBuy'] == 1 and  # EMA rápida por encima de la lenta
-                        #df.loc[i, 'regression_trend'] == "bullish" 
+                        df.loc[i, 'regression_trend'] == "bullish" 
                         #(climax_condition and df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])  # Volumen confirmando
                     #    climax_condition
                     
-                    #    ):
+                        ):
                         is_position_open = True
                         df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
                         
@@ -277,13 +269,13 @@ class RobotPrice:
                     #    df['climax_type'].iloc[i] == 1  # Clímax de compra (señal de venta)
                     #)
                     
-                    #if (df['rsi'].iloc[i] > 30 and      # RSI no sobrevendido
+                    if (df['rsi'].iloc[i] > 30 and   df['rsi'].iloc[i] < 70 and   # RSI no sobrevendido
                     #    df['peaks_max'].iloc[i] == 1 #and
                     #    df.loc[i, 'MediaPositionSell'] == 1 and
-                        #df.loc[i, 'regression_trend'] == "bearish"   # EMA rápida por debajo de la lenta
+                        df.loc[i, 'regression_trend'] == "bearish"   # EMA rápida por debajo de la lenta
                         #(climax_condition and df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])  # Volumen confirmando
                         
-                    #    ):
+                        ):
                             is_position_open = True
                             df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
                         
@@ -577,57 +569,6 @@ class RobotPrice:
                 self.getPriceData(instrument=self.instrument, timeframe=self.timeframe, days=self.days,connection=self.connection)
                 time.sleep(3540)
             time.sleep(1)
-
-    def detect_volume_climax(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Detecta clímax de volumen y sus diferentes tipos
-        """
-        # Calcular el volumen promedio móvil
-        df['volume_ma'] = df['tickqty'].rolling(window=20).mean()
-        
-        # Calcular el cambio de precio
-        df['price_change'] = df['bidclose'].pct_change()
-        
-        # Inicializar columnas para clímax
-        df['volume_climax'] = 0
-        df['climax_type'] = 0  # 1: compra, -1: venta
-        
-        # Umbral para considerar clímax (2 veces el volumen promedio)
-        volume_threshold = df['volume_ma'] * 2
-        
-        for i in range(1, len(df)):
-            # Detectar clímax de compra
-            if (df['tickqty'].iloc[i] > volume_threshold.iloc[i] and 
-                df['price_change'].iloc[i] > 0):
-                df.loc[df.index[i], 'volume_climax'] = 1
-                df.loc[df.index[i], 'climax_type'] = 1
-                
-            # Detectar clímax de venta
-            elif (df['tickqty'].iloc[i] > volume_threshold.iloc[i] and 
-                  df['price_change'].iloc[i] < 0):
-                df.loc[df.index[i], 'volume_climax'] = 1
-                df.loc[df.index[i], 'climax_type'] = -1
-        
-        return df
-
-    def analyze_climax_implications(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Analiza las implicaciones del clímax de volumen
-        """
-        # Inicializar columna para señales
-        df['climax_signal'] = 0
-        
-        for i in range(1, len(df)):
-            if df['volume_climax'].iloc[i] == 1:
-                # Clímax de compra - posible señal de venta
-                if df['climax_type'].iloc[i] == 1:
-                    df.loc[df.index[i], 'climax_signal'] = -1
-                    
-                # Clímax de venta - posible señal de compra
-                elif df['climax_type'].iloc[i] == -1:
-                    df.loc[df.index[i], 'climax_signal'] = 1
-        
-        return df
 
     def calculate_section_regressions(self, df: pd.DataFrame) -> pd.DataFrame:
         """

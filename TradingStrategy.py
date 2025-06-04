@@ -60,6 +60,6 @@ if __name__ == "__main__":
             print("Fatal error occurred. Restarting Trading session...")
             print(traceback.format_exc())
             del trading  # Forzar destructor
-            print("20 seconds to restar...")
+            print("20 seconds to restart...")
             time.sleep(240)  # Esperar antes de reiniciar
 
