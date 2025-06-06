@@ -10,10 +10,13 @@ from scipy import signal
 import datetime as dt
 from ConnectionFxcm import RobotConnection
 import time
+import logging
+import os
 
 class RobotPrice: 
     def __init__(self):  
         self.pricedata = None            
+        self.setup_logging()
 
     def __init__(self, days, instrument, timeframe):
         self.instrument = instrument
@@ -22,19 +25,81 @@ class RobotPrice:
         self.days = days
         self.robotconnection = RobotConnection()
         self.connection = self.robotconnection.getConnection()
+        self.setup_logging()
         
+    def setup_logging(self):
+        """Configura el sistema de logging"""
+        # Crear directorio de logs si no existe
+        if not os.path.exists('logs'):
+            os.makedirs('logs')
+
+        # Configurar el logger principal
+        self.logger = logging.getLogger('RobotPrice')
+        self.logger.setLevel(logging.INFO)
+
+        # Crear manejador para archivo con codificación UTF-8
+        log_file = f'logs/robot_price_{datetime.now().strftime("%Y%m%d")}.log'
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(logging.INFO)
+
+        # Crear manejador para consola
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+
+        # Crear formato personalizado
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s\n%(message)s')
+        file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+
+        # Agregar manejadores al logger
+        self.logger.addHandler(file_handler)
+        self.logger.addHandler(console_handler)
+
+    def log_message(self, message, level='info'):
+        """Función helper para logging con formato especial"""
+        # Asegurar que el mensaje sea una cadena UTF-8
+        if isinstance(message, str):
+            message = message.encode('utf-8').decode('utf-8')
+        
+        # Reemplazar caracteres especiales con sus equivalentes ASCII
+        replacements = {
+            '•': '*',
+            'ó': 'o',
+            'ñ': 'n',
+            'á': 'a',
+            'é': 'e',
+            'í': 'i',
+            'ú': 'u',
+            'Á': 'A',
+            'É': 'E',
+            'Í': 'I',
+            'Ó': 'O',
+            'Ú': 'U',
+            'Ñ': 'N'
+        }
+        
+        for old, new in replacements.items():
+            message = message.replace(old, new)
+        
+        if level == 'info':
+            self.logger.info(message)
+        elif level == 'error':
+            self.logger.error(message)
+        elif level == 'warning':
+            self.logger.warning(message)
+
     def existingOperation(self, instrument, BuySell):
         existOperation = False
         try:
             trades_table = self.connection.get_table(self.connection.TRADES)            
             for trade_row in trades_table:
-                        if BuySell == trade_row.BuySell:
-                            print("Existing Trade: " + str(trade_row.TradeID))
-                            existOperation = True                  
+                if BuySell == trade_row.BuySell:
+                    self.log_message("\n" + "="*50 + "\n>>> OPERACIÓN EXISTENTE <<<\n" + f"• TradeID: {trade_row.TradeID}")
+                    existOperation = True                  
             return existOperation
         except Exception as e:
-                print("Exception: " + str(e))
-                return existOperation
+            self.log_message("\n" + "!"*50 + f"\nERROR en existingOperation: {str(e)}\n" + "!"*50, 'error')
+            return existOperation
         
     def CloseOperation(self, instrument, BuySell):
         try:
@@ -42,14 +107,14 @@ class RobotPrice:
             accountId = None
             for account in accounts_response_reader:
                 accountId = account.account_id
-                print(accountId)    
+                self.log_message("\n" + "="*50 + "\n>>> CIERRE DE OPERACIÓN <<<\n" + f"• AccountID: {accountId}")
 
             orders_table = self.connection.get_table(self.connection.TRADES)
             for trade in orders_table:
                 buy_sell = ''
                 if trade.instrument == instrument and trade.buy_sell == BuySell:   
                     buy_sell = self.corepy.Constants.SELL if trade.buy_sell == self.corepy.Constants.BUY else self.corepy.Constants.BUY                
-                    print('Closing ' + str(buy_sell))
+                    self.log_message(f"• Cerrando operación: {buy_sell}")
                     if buy_sell != None:
                         request = self.connection.create_order_request(
                             order_type=self.corepy.Constants.Orders.TRUE_MARKET_CLOSE,
@@ -60,12 +125,11 @@ class RobotPrice:
                             TRADE_ID=trade.trade_id
                         )
                         self.connection.send_request_async(request)
-                        print('Request Sended')
-                        print('Closed ' + str(buy_sell))
+                        self.log_message("• Solicitud enviada\n• Operación cerrada")
                 else:
-                    print('Trade is not the same ' + str(buy_sell) + ' != ' + str(trade.BuySell))
+                    self.log_message(f"• Operación no coincide: {buy_sell} != {trade.BuySell}")
         except Exception as e:
-            print("Exception: " + str(e))
+            self.log_message("\n" + "!"*50 + f"\nERROR en CloseOperation: {str(e)}\n" + "!"*50, 'error')
 
     def createEntryOrder(self, str_buy_sell=None):
         args = self.robotconnection.args
@@ -84,10 +148,12 @@ class RobotPrice:
 
         if peggedstop:
             if not pegstoptype:
-                print('pegstoptype must be specified')
+                print("\n>>> ERROR DE CONFIGURACIÓN <<<")
+                print("• Se debe especificar pegstoptype")
                 return
             if pegstoptype != 'O' and pegstoptype != 'M':
-                print('pegstoptype is invalid. "O" or "M" only.')
+                print("\n>>> ERROR DE CONFIGURACIÓN <<<")
+                print("• pegstoptype inválido. Solo se permite 'O' o 'M'")
                 return
             peggedstop = peggedstop.lower()
             if peggedstop != 'y':
@@ -98,10 +164,12 @@ class RobotPrice:
 
         if peggedlimit:
             if not peglimittype:
-                print('peglimittype must be specified')
+                print("\n>>> ERROR DE CONFIGURACIÓN <<<")
+                print("• Se debe especificar peglimittype")
                 return
             if peglimittype != 'O' and peglimittype != 'M':
-                print('peglimittype is invalid. "O" or "M" only.')
+                print("\n>>> ERROR DE CONFIGURACIÓN <<<")
+                print("• peglimittype inválido. Solo se permite 'O' o 'M'")
                 return
             peggedlimit = peggedlimit.lower()
             if peggedlimit != 'y':
@@ -116,7 +184,8 @@ class RobotPrice:
                 raise Exception("The account '{0}' is not valid".format(str_account))
             else:
                 str_account = account.account_id
-                print("AccountID='{0}'".format(str_account))
+                print(f"\n>>> CUENTA CONFIGURADA <<<")
+                print(f"• AccountID: {str_account}")
 
             offer = common.get_offer(self.connection, str_instrument)
             if offer is None:
@@ -184,11 +253,17 @@ class RobotPrice:
                         RATE_LIMIT=limit,
                     )
             self.connection.send_request_async(request)
+            print(f"\n>>> ORDEN CREADA <<<")
+            print(f"• Tipo: {str_buy_sell}")
+            print(f"• Instrumento: {str_instrument}")
+            print(f"• Cantidad: {amount}")
         except Exception as e:
-            print(e)
+            print("\n" + "!"*50)
+            print(f"ERROR en createEntryOrder: {str(e)}")
+            print("!"*50)
 
     def __del__(self):
-        print('Object gets destroyed')
+        self.log_message("\n" + "="*50 + "\n>>> FINALIZANDO SESIÓN <<<\n• Objeto destruido")
         self.connection.logout()
 
     def savePriceDataFile(self, pricedata):
@@ -233,87 +308,131 @@ class RobotPrice:
         signal_column = strategy_type
         df[signal_column] = SIGNAL_NEUTRAL
         
+        # Definir condiciones de apertura y cierre
         open_condition = 'peaks_min' if strategy_type == 'buy' else 'peaks_max'
         close_condition = 'peaks_max' if strategy_type == 'buy' else 'peaks_min'
         
-        open_signals = df[open_condition] == 1
-        close_signals = df[close_condition] == 1
+        # Calcular indicadores técnicos
+        df['atr'] = self.calculate_atr(df, period=14)
+        df['atr_ma'] = df['atr'].rolling(window=20).mean()
+        df['relative_volatility'] = df['atr'] / df['atr_ma']
         
         is_position_open = False
         
         for i in range(len(df)):
-            if not is_position_open and open_signals.iloc[i]:
-                # Apply filters for buy signals
-                if strategy_type == 'buy':
-                    # Verificar clímax de volumen para compras
-                    #climax_condition = (
-                    #    df['volume_climax'].iloc[i] == 1 and 
-                    #    df['climax_type'].iloc[i] == -1  # Clímax de venta (señal de compra)
-                    #)
-                    
-                    if (df['rsi'].iloc[i] > 30 and df['rsi'].iloc[i] < 70 and     # RSI no sobrecomprado
-                    #    df.loc[i, 'MediaPositionBuy'] == 1 and  # EMA rápida por encima de la lenta
-                        df.loc[i, 'regression_trend'] == "bullish" 
-                        #(climax_condition and df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])  # Volumen confirmando
-                    #    climax_condition
-                    
-                        ):
+            current_volatility = df['relative_volatility'].iloc[i]
+            current_rsi = df['rsi'].iloc[i]
+            
+            # Verificar si hay señal de apertura
+            if not is_position_open and df[open_condition].iloc[i] == 1:
+                # Verificar condiciones de volatilidad
+                if 0.5 <= current_volatility <= 1.5:
+                    # Verificar condiciones de RSI
+                    if 30 < current_rsi < 70:
                         is_position_open = True
                         df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
                         
-                # Apply filters for sell signals
+                        # Mensaje detallado de la señal
+                        self.log_message(
+                            "="*50 + "\n" +
+                            f">>> SENAL DE {strategy_type.upper()} <<<\n" +
+                            "-"*50 + "\n" +
+                            f"* RSI: {current_rsi:.2f}\n" +
+                            f"* Volatilidad: {current_volatility:.2f}\n" +
+                            "="*50
+                        )
+                    else:
+                        self.log_message(
+                            "-"*50 + "\n" +
+                            f">>> NO SE OPERA - RSI FUERA DE RANGO <<<\n" +
+                            f"* RSI actual: {current_rsi:.2f}\n" +
+                            f"* Rango permitido: 30-70\n" +
+                            "-"*50
+                        )
                 else:
-                    # Verificar clímax de volumen para ventas
-                    #climax_condition = (
-                    #    df['volume_climax'].iloc[i] == 1 and 
-                    #    df['climax_type'].iloc[i] == 1  # Clímax de compra (señal de venta)
-                    #)
-                    
-                    if (df['rsi'].iloc[i] > 30 and   df['rsi'].iloc[i] < 70 and   # RSI no sobrevendido
-                    #    df['peaks_max'].iloc[i] == 1 #and
-                    #    df.loc[i, 'MediaPositionSell'] == 1 and
-                        df.loc[i, 'regression_trend'] == "bearish"   # EMA rápida por debajo de la lenta
-                        #(climax_condition and df['tickqty'].iloc[i] > df['volume_ma'].iloc[i])  # Volumen confirmando
-                        
-                        ):
-                            is_position_open = True
-                            df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
-                        
-            elif is_position_open and close_signals.iloc[i]:
-                # Cerrar posición si hay clímax de volumen contrario
-                if strategy_type == 'buy':
-                    #if (#df['volume_climax'].iloc[i] == 1 and 
-                    #    df['climax_type'].iloc[i] == 1  # Clímax de compra (señal de venta)
-                        is_position_open = False
-                        df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE
-                else:
-                    #if (df['volume_climax'].iloc[i] == 1 and 
-                    #    df['climax_type'].iloc[i] == -1):  # Clímax de venta (señal de compra)
-                        is_position_open = False
-                        df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE
-                
+                    self.log_message(
+                        "-"*50 + "\n" +
+                        f">>> NO SE OPERA - VOLATILIDAD FUERA DE RANGO <<<\n" +
+                        f"* Volatilidad actual: {current_volatility:.2f}\n" +
+                        f"* Rango permitido: 0.5-1.5\n" +
+                        "-"*50
+                    )
+            
+            # Verificar si hay señal de cierre
+            elif is_position_open and df[close_condition].iloc[i] == 1:
+                is_position_open = False
+                df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE
+                self.log_message(
+                    "="*50 + "\n" +
+                    f">>> CIERRE DE POSICION {strategy_type.upper()} <<<\n" +
+                    "-"*50 + "\n" +
+                    f"* RSI: {current_rsi:.2f}\n" +
+                    "="*50
+                )
+        
         return df
 
     def evaluate_triggers_signals(self, df):
-        # Selecciona las filas de interés: de la -6 a la -2 (excluyendo las dos últimas)
-        recent_rows = df.iloc[-6:-4]
-
-        # Señales
-        buy_signal = (recent_rows['buy'] == 1).any()
-        sell_signal = (recent_rows['sell'] == 1).any()
-
-        # Execute trades based on signals
-        if buy_signal:
-            if self.existingOperation(instrument=self.instrument, BuySell="S"):
-                self.CloseOperation(instrument=self.instrument, BuySell="S")
-            if not self.existingOperation(instrument=self.instrument, BuySell="B"):
-                self.createEntryOrder(str_buy_sell="B")
+        try:
+            # Selecciona las filas más recientes para análisis
+            recent_rows = df.iloc[-6:-2]  # Últimas 4 velas (excluyendo las 2 más recientes)
+            
+            # Obtener el precio actual
+            current_price = df['bidclose'].iloc[-1]
+            current_rsi = df['rsi'].iloc[-1]
+            
+            # Verificar señales de compra y venta
+            buy_signals = recent_rows[recent_rows['buy'] == 1]
+            sell_signals = recent_rows[recent_rows['sell'] == 1]
+            
+            # Verificar si hay señales activas
+            has_buy_signal = not buy_signals.empty
+            has_sell_signal = not sell_signals.empty
+            
+            # Imprimir encabezado con información actual
+            print("\n" + "="*50)
+            print(f"EVALUACIÓN DE SEÑALES - {self.instrument}")
+            print("="*50)
+            print(f"Precio actual: {current_price:.5f}")
+            print(f"RSI actual: {current_rsi:.2f}")
+            print("-"*50)
+            
+            # Procesar señales de compra
+            if has_buy_signal:
+                print("\n>>> SEÑAL DE COMPRA DETECTADA <<<")
+                if self.existingOperation(instrument=self.instrument, BuySell="S"):
+                    print("• Cerrando posición de VENTA existente")
+                    self.CloseOperation(instrument=self.instrument, BuySell="S")
                 
-        if sell_signal:
-            if self.existingOperation(instrument=self.instrument, BuySell="B"):
-                self.CloseOperation(instrument=self.instrument, BuySell="B")
-            if not self.existingOperation(instrument=self.instrument, BuySell="S"):
-                self.createEntryOrder(str_buy_sell="S")
+                if not self.existingOperation(instrument=self.instrument, BuySell="B"):
+                    print("• Abriendo nueva posición de COMPRA")
+                    self.createEntryOrder(str_buy_sell="B")
+                else:
+                    print("• Ya existe una posición de COMPRA activa")
+            
+            # Procesar señales de venta
+            if has_sell_signal:
+                print("\n>>> SEÑAL DE VENTA DETECTADA <<<")
+                if self.existingOperation(instrument=self.instrument, BuySell="B"):
+                    print("• Cerrando posición de COMPRA existente")
+                    self.CloseOperation(instrument=self.instrument, BuySell="B")
+                
+                if not self.existingOperation(instrument=self.instrument, BuySell="S"):
+                    print("• Abriendo nueva posición de VENTA")
+                    self.createEntryOrder(str_buy_sell="S")
+                else:
+                    print("• Ya existe una posición de VENTA activa")
+            
+            # Si no hay señales
+            if not has_buy_signal and not has_sell_signal:
+                print("\n>>> NO HAY SEÑALES ACTIVAS <<<")
+            
+            print("\n" + "="*50)
+                
+        except Exception as e:
+            print("\n" + "!"*50)
+            print(f"ERROR: {str(e)}")
+            print("!"*50)
 
     def calculate_trend(self, df: pd.DataFrame) -> pd.DataFrame:
         df['trend'] = 0
@@ -521,13 +640,23 @@ class RobotPrice:
         return df
 
     def getPriceData(self, instrument, timeframe, days, connection):
-        europe_London_datetime = datetime.now(ZoneInfo('Europe/London'))  # Uso de ZoneInfo
+        europe_London_datetime = datetime.now(ZoneInfo('Europe/London'))
         date_from = europe_London_datetime - dt.timedelta(days=days)
         date_to = europe_London_datetime
 
         history = connection.get_history(instrument, timeframe, date_from, date_to)
         current_unit, _ = connection.parse_timeframe(timeframe)
-        print("Price Data Received..." + str(current_unit) + " " + str(timeframe) + " " + str(instrument) + " " + str(europe_London_datetime))
+        
+        self.log_message(
+            "="*50 + "\n" +
+            ">>> DATOS DE PRECIO RECIBIDOS <<<\n" +
+            "-"*50 + "\n" +
+            f"    * Unidad: {current_unit}\n" +
+            f"    * Timeframe: {timeframe}\n" +
+            f"    * Instrumento: {instrument}\n" +
+            f"    * Fecha: {europe_London_datetime}\n" +
+            "="*50
+        )
 
         pricedata = pd.DataFrame(history, columns=["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
 
