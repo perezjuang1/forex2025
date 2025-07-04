@@ -54,23 +54,6 @@ class ForexPlotter:
         # Add trend line
         self.trend_line, = self.ax.plot([], [], linestyle='solid', color='red', label='Trend', alpha=0.3)
 
-        # Add regression lines
-        self.regression_line_1, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 1', alpha=0.5)
-        self.regression_line_2, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 2', alpha=0.5)
-        self.regression_line_3, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 3', alpha=0.5)
-        self.regression_line_4, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 4', alpha=0.5)
-        self.regression_line_5, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 5', alpha=0.5)
-        self.regression_line_6, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 6', alpha=0.5)
-        self.regression_line_7, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 7', alpha=0.5)
-        self.regression_line_8, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 8', alpha=0.5)
-        self.regression_line_9, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 9', alpha=0.5)
-        self.regression_line_10, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 10', alpha=0.5)
-        self.regression_line_11, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 11', alpha=0.5)
-        self.regression_line_12, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 12', alpha=0.5)
-        self.regression_line_13, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 13', alpha=0.5)
-        self.regression_line_14, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 14', alpha=0.5)
-        self.regression_line_15, = self.ax.plot([], [], linestyle='solid', color='#ff9900', label='Regression 15', alpha=0.5)
-
         # Peak markers
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
         self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='orange', label='Max Peaks')
@@ -151,23 +134,6 @@ class ForexPlotter:
             self.price_line.set_data(df_view.index, df_view['bidclose'])
             self.ema_line.set_data(df_view.index, df_view['ema'])
             
-            # Update regression lines
-            self.regression_line_1.set_data(df_view.index, df_view['regression_line_1'])
-            self.regression_line_2.set_data(df_view.index, df_view['regression_line_2'])
-            self.regression_line_3.set_data(df_view.index, df_view['regression_line_3'])
-            self.regression_line_4.set_data(df_view.index, df_view['regression_line_4'])
-            self.regression_line_5.set_data(df_view.index, df_view['regression_line_5'])
-            self.regression_line_6.set_data(df_view.index, df_view['regression_line_6'])
-            self.regression_line_7.set_data(df_view.index, df_view['regression_line_7'])
-            self.regression_line_8.set_data(df_view.index, df_view['regression_line_8'])
-            self.regression_line_9.set_data(df_view.index, df_view['regression_line_9'])
-            self.regression_line_10.set_data(df_view.index, df_view['regression_line_10'])
-            self.regression_line_11.set_data(df_view.index, df_view['regression_line_11'])
-            self.regression_line_12.set_data(df_view.index, df_view['regression_line_12'])
-            self.regression_line_13.set_data(df_view.index, df_view['regression_line_13'])
-            self.regression_line_14.set_data(df_view.index, df_view['regression_line_14'])
-            self.regression_line_15.set_data(df_view.index, df_view['regression_line_15'])
-            
             # Update peaks
             self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1.0].index, 
                                        df_view[df_view['peaks_min'] == 1.0]['bidclose'])
@@ -202,22 +168,7 @@ class ForexPlotter:
                     self.trigger_sell, 
                     self.trigger_close_buy, 
                     self.trigger_close_sell,
-                    self.trend_line,
-                    self.regression_line_1,
-                    self.regression_line_2,
-                    self.regression_line_3,
-                    self.regression_line_4,
-                    self.regression_line_5,
-                    self.regression_line_6,
-                    self.regression_line_7,
-                    self.regression_line_8,
-                    self.regression_line_9,
-                    self.regression_line_10,
-                    self.regression_line_11,
-                    self.regression_line_12,
-                    self.regression_line_13,
-                    self.regression_line_14,
-                    self.regression_line_15]
+                    self.trend_line]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []

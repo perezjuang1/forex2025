@@ -20,29 +20,29 @@ class Trading:
         self.connection.logout()
 
     def start_trade_monitor(self):    
-        self.getPriceData(timeframe=self.timeframe)  
+        self.operation_detection(timeframe=self.timeframe)  
         while True:            
             currenttime = dt.datetime.now()  
             if self.timeframe == "m1" and currenttime.second == 0:
-                self.getPriceData( timeframe=self.timeframe)    
+                self.operation_detection( timeframe=self.timeframe)    
                 time.sleep(1)                    
             elif self.timeframe == "m5" and currenttime.second == 0 and currenttime.minute % 5 == 0:
-                self.getPriceData( timeframe=self.timeframe)
+                self.operation_detection( timeframe=self.timeframe)
                 time.sleep(240)
             elif self.timeframe == "m15" and currenttime.second == 0 and currenttime.minute % 15 == 0:
-                self.getPriceData( timeframe=self.timeframe)
+                self.operation_detection( timeframe=self.timeframe)
                 time.sleep(840)
             elif self.timeframe == "m30" and currenttime.second == 0 and currenttime.minute % 30 == 0:
-                self.getPriceData( timeframe=self.timeframe)
+                self.operation_detection( timeframe=self.timeframe)
                 time.sleep(1740)
             elif self.timeframe == "H1" and currenttime.second == 0 and currenttime.minute == 0:
-                self.getPriceData( timeframe=self.timeframe)
+                self.operation_detection( timeframe=self.timeframe)
                 time.sleep(3540)
             time.sleep(1)
 
-    def getPriceData(self, timeframe): 
+    def operation_detection(self, timeframe): 
         try:
-            df = self._robot_price.getPriceData(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
+            df = self._robot_price.get_price_data(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
         except Exception as e:
             print("Exception: " + str(e))
             print(traceback.format_exc())
