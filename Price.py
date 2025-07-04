@@ -78,14 +78,7 @@ class RobotPrice:
         history = connection.get_history(instrument, timeframe, date_from, date_to)
         current_unit, _ = connection.parse_timeframe(timeframe)
         self._log_message(
-            "="*50 + "\n" +
-            ">>> DATOS DE PRECIO RECIBIDOS <<<\n" +
-            "-"*50 + "\n" +
-            f"    * Unidad: {current_unit}\n" +
-            f"    * Timeframe: {timeframe}\n" +
-            f"    * Instrumento: {instrument}\n" +
-            f"    * Fecha: {europe_London_datetime}\n" +
-            "="*50
+            f"DATOS PRECIO: Unidad={current_unit}, Timeframe={timeframe}, Instrumento={instrument}, Fecha={europe_London_datetime}"
         )
         pricedata = pd.DataFrame(history, columns=["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
         d = {
@@ -243,12 +236,12 @@ class RobotPrice:
 
     def evaluate_triggers_signals(self, df: pd.DataFrame):
         """
-        Evalúa las señales generadas por los triggers y ejecuta operaciones si corresponde.
+        Evalúa las señales generadas por los triggers y ejecuta operaciones si corresponde, excluyendo la última vela (en formación).
         """
         try:
-            recent_rows = df.iloc[-6:]
-            current_price = df['bidclose'].iloc[-1]
-            current_rsi = df['rsi'].iloc[-1]
+            recent_rows = df.iloc[-7:-1]  # Excluye la última vela
+            current_price = df['bidclose'].iloc[-2]  # Usar penúltima vela
+            current_rsi = df['rsi'].iloc[-2]
             buy_signals = recent_rows[recent_rows['buy'] == 1]
             sell_signals = recent_rows[recent_rows['sell'] == 1]
             has_buy_signal = not buy_signals.empty
@@ -310,10 +303,11 @@ class RobotPrice:
                             TRADE_ID=trade.trade_id
                         )
                         self.connection.send_request_async(request)
+                        self._log_message(f"Operacion CERRADA: Instrumento={instrument}, Tipo={BuySell}, Monto={trade.amount}, TradeID={trade.trade_id}")
                 else:
                     pass
         except Exception as e:
-            pass
+            self._log_message(f"Error al cerrar operacion: {e}", level='error')
 
     def createEntryOrder(self, str_buy_sell: str = None):
         """
@@ -420,29 +414,6 @@ class RobotPrice:
                         RATE_LIMIT=limit,
                     )
             self.connection.send_request_async(request)
+            self._log_message(f"Operacion ABIERTA: Instrumento={str_instrument}, Tipo={'BUY' if str_buy_sell == fxcorepy.Constants.BUY else 'SELL'}, Monto={amount}, Stop={stop}, Limit={limit}")
         except Exception as e:
-            pass
-
-    def set_monitor_price_data(self):
-        """
-        Monitorea y actualiza los datos de precio periódicamente según el timeframe.
-        """
-        self.get_price_data(instrument=self.instrument, timeframe=self.timeframe, days=self.days, connection=self.connection)
-        while True:
-            currenttime = dt.datetime.now()
-            if self.timeframe == "m1" and currenttime.second == 0:
-                self.get_price_data(instrument=self.instrument, timeframe=self.timeframe, days=self.days, connection=self.connection)
-                time.sleep(1)
-            elif self.timeframe == "m5" and currenttime.second == 0 and currenttime.minute % 5 == 0:
-                self.get_price_data(instrument=self.instrument, timeframe=self.timeframe, days=self.days, connection=self.connection)
-                time.sleep(240)
-            elif self.timeframe == "m15" and currenttime.second == 0 and currenttime.minute % 15 == 0:
-                self.get_price_data(instrument=self.instrument, timeframe=self.timeframe, days=self.days, connection=self.connection)
-                time.sleep(840)
-            elif self.timeframe == "m30" and currenttime.second == 0 and currenttime.minute % 30 == 0:
-                self.get_price_data(instrument=self.instrument, timeframe=self.timeframe, days=self.days, connection=self.connection)
-                time.sleep(1740)
-            elif self.timeframe == "H1" and currenttime.second == 0 and currenttime.minute == 0:
-                self.get_price_data(instrument=self.instrument, timeframe=self.timeframe, days=self.days, connection=self.connection)
-                time.sleep(3540)
-            time.sleep(1)
+            self._log_message(f"Error al abrir operacion: {e}", level='error')
