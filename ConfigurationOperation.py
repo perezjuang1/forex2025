@@ -5,8 +5,8 @@ from backports.zoneinfo import ZoneInfo
 from threading import Event
 class ConfigurationOperation:
    
-    userid = "U10D2470134"
-    password = "Xvw0d"
+    userid = "U10D2470448"
+    password = "2Rcha"
     url = "http://www.fxcorporate.com/Hosts.jsp"
     connectiontype = "Demo"
     instrument_symbol = "EUR/USD"
