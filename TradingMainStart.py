@@ -42,6 +42,7 @@ class Trading:
 
     def operation_detection(self, timeframe): 
         try:
+            print(f"[LOG] Iniciando operación_detection - timeframe: {timeframe} - " + str(dt.datetime.now())  )
             df = self._robot_price.get_price_data(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
         except Exception as e:
             print("Exception: " + str(e))

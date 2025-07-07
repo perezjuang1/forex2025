@@ -117,6 +117,9 @@ class RobotPrice:
         df['MediaPositionBuy'] = np.where((df['ema'] > df['ema_slow']), 1, 0)
         df['rsi'] = self.calculate_rsi(df, 'bidclose')
         df['volume_ma'] = df['tickqty'].rolling(window=20).mean()
+        df['atr'] = self.calculate_atr(df, period=14)
+        df['atr_ma'] = df['atr'].rolling(window=20).mean()
+        df['relative_volatility'] = df['atr'] / df['atr_ma']
         df = self.apply_triggers_strategy(df, 'buy')
         df = self.apply_triggers_strategy(df, 'sell')
         self.evaluate_triggers_signals(df)
@@ -210,9 +213,6 @@ class RobotPrice:
         df[signal_column] = SIGNAL_NEUTRAL
         open_condition = 'peaks_min' if strategy_type == 'buy' else 'peaks_max'
         close_condition = 'peaks_max' if strategy_type == 'buy' else 'peaks_min'
-        df['atr'] = self.calculate_atr(df, period=14)
-        df['atr_ma'] = df['atr'].rolling(window=20).mean()
-        df['relative_volatility'] = df['atr'] / df['atr_ma']
         is_position_open = False
         for i in range(len(df)):
             current_volatility = df['relative_volatility'].iloc[i]
@@ -240,30 +240,55 @@ class RobotPrice:
         """
         try:
             recent_rows = df.iloc[-7:-1]  # Excluye la última vela
-            current_price = df['bidclose'].iloc[-2]  # Usar penúltima vela
-            current_rsi = df['rsi'].iloc[-2]
             buy_signals = recent_rows[recent_rows['buy'] == 1]
             sell_signals = recent_rows[recent_rows['sell'] == 1]
             has_buy_signal = not buy_signals.empty
             has_sell_signal = not sell_signals.empty
+            # Definir variables para logs
+            if has_buy_signal:
+                last_buy = buy_signals.iloc[-1]
+                buy_fecha = last_buy['date']
+                buy_price = last_buy['bidclose']
+            if has_sell_signal:
+                last_sell = sell_signals.iloc[-1]
+                sell_fecha = last_sell['date']
+                sell_price = last_sell['bidclose']
             if has_buy_signal:
                 if self.existingOperation(instrument=self.instrument, BuySell="S"):
+                    self._log_message(
+                        f"\n[CIERRE SELL]\n  Motivo: Señal de COMPRA detectada\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                    )
                     self.CloseOperation(instrument=self.instrument, BuySell="S")
                 if not self.existingOperation(instrument=self.instrument, BuySell="B"):
+                    self._log_message(
+                        f"\n[APERTURA BUY]\n  Motivo: Señal de COMPRA detectada\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                    )
                     self.createEntryOrder(str_buy_sell="B")
                 else:
-                    pass
+                    self._log_message(
+                        f"\n[INFO]\n  Ya existe operación BUY abierta\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                    )
             if has_sell_signal:
                 if self.existingOperation(instrument=self.instrument, BuySell="B"):
+                    self._log_message(
+                        f"\n[CIERRE BUY]\n  Motivo: Señal de VENTA detectada\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                    )
                     self.CloseOperation(instrument=self.instrument, BuySell="B")
                 if not self.existingOperation(instrument=self.instrument, BuySell="S"):
+                    self._log_message(
+                        f"\n[APERTURA SELL]\n  Motivo: Señal de VENTA detectada\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                    )
                     self.createEntryOrder(str_buy_sell="S")
                 else:
-                    pass
+                    self._log_message(
+                        f"\n[INFO]\n  Ya existe operación SELL abierta\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                    )
             if not has_buy_signal and not has_sell_signal:
-                pass
+                self._log_message(
+                    f"\n[INFO]\n  No se detectaron señales de compra ni venta en las últimas velas\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                )
         except Exception as e:
-            pass
+            self._log_message(f"Error en evaluate_triggers_signals: {e}", level='error')
 
     def existingOperation(self, instrument: str, BuySell: str) -> bool:
         """
