@@ -107,22 +107,14 @@ class RobotPrice:
 
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calcula y agrega indicadores técnicos al DataFrame.
+        Calcula y agrega solo los indicadores necesarios al DataFrame.
         """
         df = self.calculate_peaks(df)
         df = self.calculate_trend(df)
-        df['ema'] = df['bidclose'].ewm(span=50).mean()
-        df['ema_slow'] = df['bidclose'].ewm(span=100).mean()
-        df['MediaPositionSell'] = np.where((df['ema'] < df['ema_slow']), 1, 0)
-        df['MediaPositionBuy'] = np.where((df['ema'] > df['ema_slow']), 1, 0)
         df['rsi'] = self.calculate_rsi(df, 'bidclose')
-        df['volume_ma'] = df['tickqty'].rolling(window=20).mean()
-        df['atr'] = self.calculate_atr(df, period=14)
-        df['atr_ma'] = df['atr'].rolling(window=20).mean()
-        df['relative_volatility'] = df['atr'] / df['atr_ma']
         df = self.apply_triggers_strategy(df, 'buy')
         df = self.apply_triggers_strategy(df, 'sell')
-        self.evaluate_triggers_signals(df)
+        self.triggers_trades(df)
         return df
 
     def calculate_rsi(self, df: pd.DataFrame, column: str) -> pd.Series:
@@ -142,69 +134,37 @@ class RobotPrice:
         Detecta picos mínimos y máximos en los precios.
         """
         df['value1'] = 1
-        df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.less, order=30)[0]]['value1']
-        df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.greater, order=30)[0]]['value1']
+        df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.less, order=5)[0]]['value1']
+        df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.greater, order=5)[0]]['value1']
         return df
 
     def calculate_trend(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calcula la tendencia del precio usando picos y volumen.
+        Calcula la tendencia del precio usando picos y volumen - VERSIÓN ULTRA SIMPLIFICADA.
         """
         df['trend'] = 0
         df['trend_line'] = df['bidclose']
-        window_size = 7
-        df['volume_ma'] = df['tickqty'].rolling(window=20).mean()
-        df['high_low_range'] = df['bidhigh'] - df['bidlow']
-        df['volatility'] = df['high_low_range'].rolling(window=14).mean()
-        peak_min_indices = df[df['peaks_min'] == 1].index
-        peak_max_indices = df[df['peaks_max'] == 1].index
-        all_peaks = sorted(list(peak_min_indices) + list(peak_max_indices))
-        for i in range(len(all_peaks) - window_size + 1):
-            window_peaks = all_peaks[i:i + window_size]
-            window_data = df.loc[window_peaks]
-            if len(window_peaks) >= 2:
-                x = np.arange(len(window_peaks))
-                y = window_data['bidclose'].values
-                slope, _ = np.polyfit(x, y, 1)
-            else:
-                slope = 0
-            higher_highs = sum(1 for j in range(1, len(window_peaks)) if window_data.loc[window_peaks[j], 'bidhigh'] > window_data.loc[window_peaks[j-1], 'bidhigh'])
-            higher_lows = sum(1 for j in range(1, len(window_peaks)) if window_data.loc[window_peaks[j], 'bidlow'] > window_data.loc[window_peaks[j-1], 'bidlow'])
-            lower_highs = sum(1 for j in range(1, len(window_peaks)) if window_data.loc[window_peaks[j], 'bidhigh'] < window_data.loc[window_peaks[j-1], 'bidhigh'])
-            lower_lows = sum(1 for j in range(1, len(window_peaks)) if window_data.loc[window_peaks[j], 'bidlow'] < window_data.loc[window_peaks[j-1], 'bidlow'])
-            volume_increasing = window_data['tickqty'].mean() > window_data['volume_ma'].mean()
-            current_volatility = window_data['volatility'].iloc[-1]
-            avg_volatility = df['volatility'].mean()
-            volatility_ok = current_volatility <= avg_volatility * 1.5
-            if (higher_highs >= 4 and higher_lows >= 4 and slope > 0 and volume_increasing and volatility_ok):
-                df.loc[window_peaks, 'trend'] = 1
-                df.loc[window_peaks, 'trend_line'] = df.loc[window_peaks, 'bidlow'].rolling(window=2).min()
-            elif (lower_highs >= 4 and lower_lows >= 4 and slope < 0 and volume_increasing and volatility_ok):
-                df.loc[window_peaks, 'trend'] = -1
-                df.loc[window_peaks, 'trend_line'] = df.loc[window_peaks, 'bidhigh'].rolling(window=2).max()
-            else:
-                df.loc[window_peaks, 'trend'] = 0
-                df.loc[window_peaks, 'trend_line'] = (df.loc[window_peaks, 'bidhigh'] + df.loc[window_peaks, 'bidlow']) / 2
-        df['trend_line'] = df['trend_line'].fillna(method='ffill')
+        
+        # Calcular tendencia simple basada en EMA
+        df['ema_short'] = df['bidclose'].ewm(span=10).mean()
+        df['ema_long'] = df['bidclose'].ewm(span=20).mean()
+        
+        # Tendencia basada en EMA cruzada
+        for i in range(1, len(df)):
+            if df['ema_short'].iloc[i] > df['ema_long'].iloc[i] and df['ema_short'].iloc[i-1] <= df['ema_long'].iloc[i-1]:
+                df.loc[df.index[i:], 'trend'] = 1  # Tendencia alcista
+            elif df['ema_short'].iloc[i] < df['ema_long'].iloc[i] and df['ema_short'].iloc[i-1] >= df['ema_long'].iloc[i-1]:
+                df.loc[df.index[i:], 'trend'] = -1  # Tendencia bajista
+            # Si no hay cruce, mantener la tendencia anterior
+        
+        # Línea de tendencia simple
+        df['trend_line'] = df['bidclose'].rolling(window=5).mean()
+        
         return df
-
-    def calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
-        """
-        Calcula el Average True Range (ATR) para medir volatilidad.
-        """
-        high = df['bidhigh']
-        low = df['bidlow']
-        close = df['bidclose']
-        tr1 = high - low
-        tr2 = abs(high - close.shift())
-        tr3 = abs(low - close.shift())
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=period).mean()
-        return atr
 
     def apply_triggers_strategy(self, df: pd.DataFrame, strategy_type: str) -> pd.DataFrame:
         """
-        Aplica la estrategia de triggers para buy/sell.
+        Aplica la estrategia de triggers para buy/sell incluyendo análisis de tendencia.
         """
         SIGNAL_OPEN = 1
         SIGNAL_CLOSE = -1
@@ -215,26 +175,34 @@ class RobotPrice:
         close_condition = 'peaks_max' if strategy_type == 'buy' else 'peaks_min'
         is_position_open = False
         for i in range(len(df)):
-            current_volatility = df['relative_volatility'].iloc[i]
             current_rsi = df['rsi'].iloc[i]
+            current_trend = df['trend'].iloc[i]
             is_peak = df[open_condition].iloc[i] == 1
             if not is_position_open and is_peak:
-                if 0.5 <= current_volatility <= 1.5:
-                    if 25 < current_rsi < 75:
-                        is_position_open = True
-                        df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
-                    else:
-                        pass
+                # SOLO VERIFICAR RSI Y QUE SEA UN PICO
+                if strategy_type == 'buy':
+                    rsi_ok = 10 < current_rsi < 90
                 else:
-                    pass
+                    rsi_ok = 10 < current_rsi < 90
+                if rsi_ok:
+                    is_position_open = True
+                    df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
+                    self._log_message(
+                        f"Señal {strategy_type.upper()} generada - "
+                        f"Tendencia: {current_trend} ({'Alcista' if current_trend == 1 else 'Bajista' if current_trend == -1 else 'Lateral'}), "
+                        f"RSI: {current_rsi:.2f}"
+                    )
+                else:
+                    self._log_message(
+                        f"Pico detectado pero RSI fuera de rango ({current_rsi:.2f}) para {strategy_type.upper()}"
+                    )
             elif is_position_open and df[close_condition].iloc[i] == 1:
                 is_position_open = False
                 df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE
-            else:
-                pass
+                self._log_message(f"Señal de CIERRE {strategy_type.upper()} generada en pico opuesto")
         return df
 
-    def evaluate_triggers_signals(self, df: pd.DataFrame):
+    def triggers_trades(self, df: pd.DataFrame):
         """
         Evalúa las señales generadas por los triggers y ejecuta operaciones si corresponde, excluyendo la última vela (en formación).
         """
@@ -249,39 +217,43 @@ class RobotPrice:
                 last_buy = buy_signals.iloc[-1]
                 buy_fecha = last_buy['date']
                 buy_price = last_buy['bidclose']
+                buy_trend = last_buy['trend']
+                buy_trend_desc = 'Alcista' if buy_trend == 1 else 'Bajista' if buy_trend == -1 else 'Lateral'
             if has_sell_signal:
                 last_sell = sell_signals.iloc[-1]
                 sell_fecha = last_sell['date']
                 sell_price = last_sell['bidclose']
+                sell_trend = last_sell['trend']
+                sell_trend_desc = 'Alcista' if sell_trend == 1 else 'Bajista' if sell_trend == -1 else 'Lateral'
             if has_buy_signal:
                 if self.existingOperation(instrument=self.instrument, BuySell="S"):
                     self._log_message(
-                        f"\n[CIERRE SELL]\n  Motivo: Señal de COMPRA detectada\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"\n[CIERRE SELL]\n  Motivo: Señal de COMPRA detectada\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Tendencia: {buy_trend} ({buy_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
                     )
                     self.CloseOperation(instrument=self.instrument, BuySell="S")
                 if not self.existingOperation(instrument=self.instrument, BuySell="B"):
                     self._log_message(
-                        f"\n[APERTURA BUY]\n  Motivo: Señal de COMPRA detectada\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"\n[APERTURA BUY]\n  Motivo: Señal de COMPRA detectada\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Tendencia: {buy_trend} ({buy_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
                     )
                     self.createEntryOrder(str_buy_sell="B")
                 else:
                     self._log_message(
-                        f"\n[INFO]\n  Ya existe operación BUY abierta\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"\n[INFO]\n  Ya existe operación BUY abierta\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Tendencia: {buy_trend} ({buy_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
                     )
             if has_sell_signal:
                 if self.existingOperation(instrument=self.instrument, BuySell="B"):
                     self._log_message(
-                        f"\n[CIERRE BUY]\n  Motivo: Señal de VENTA detectada\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"\n[CIERRE BUY]\n  Motivo: Señal de VENTA detectada\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Tendencia: {sell_trend} ({sell_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
                     )
                     self.CloseOperation(instrument=self.instrument, BuySell="B")
                 if not self.existingOperation(instrument=self.instrument, BuySell="S"):
                     self._log_message(
-                        f"\n[APERTURA SELL]\n  Motivo: Señal de VENTA detectada\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"\n[APERTURA SELL]\n  Motivo: Señal de VENTA detectada\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Tendencia: {sell_trend} ({sell_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
                     )
                     self.createEntryOrder(str_buy_sell="S")
                 else:
                     self._log_message(
-                        f"\n[INFO]\n  Ya existe operación SELL abierta\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"\n[INFO]\n  Ya existe operación SELL abierta\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Tendencia: {sell_trend} ({sell_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
                     )
             if not has_buy_signal and not has_sell_signal:
                 self._log_message(

@@ -46,10 +46,12 @@ class ForexPlotter:
         
     def setup_lines(self) -> None:
         """Initialize all plot lines"""
-        # Price lines
+        # Price line
         self.price_line, = self.ax.plot([], [], linestyle='dotted', color='#00ff00', label='Price')
-        self.ema_line, = self.ax.plot([], [], linestyle='dotted', color='#ff00ff', label='EMA Moving Average')
-        self.ema_slow_line, = self.ax.plot([], [], linestyle='solid', color='#00ffff', label='EMA Slow')
+
+        # EMA lines for trend calculation
+        self.ema_short_line, = self.ax.plot([], [], linestyle='solid', color='#ff00ff', label='EMA Short (10)', alpha=0.7)
+        self.ema_long_line, = self.ax.plot([], [], linestyle='solid', color='#00ffff', label='EMA Long (20)', alpha=0.7)
 
         # Add trend line
         self.trend_line, = self.ax.plot([], [], linestyle='solid', color='red', label='Trend', alpha=0.3)
@@ -130,9 +132,12 @@ class ForexPlotter:
             # Update trend line with the new trend_line column
             self.trend_line.set_data(df_view.index, df_view['trend_line'])
             
-            # Update price and EMA lines
+            # Update price line
             self.price_line.set_data(df_view.index, df_view['bidclose'])
-            self.ema_line.set_data(df_view.index, df_view['ema'])
+            
+            # Update EMA lines for trend calculation
+            self.ema_short_line.set_data(df_view.index, df_view['ema_short'])
+            self.ema_long_line.set_data(df_view.index, df_view['ema_long'])
             
             # Update peaks
             self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1.0].index, 
@@ -146,9 +151,6 @@ class ForexPlotter:
             self.trigger_sell.set_data(df_view[df_view['sell'] == 1.0].index, 
                                       df_view[df_view['sell'] == 1.0]['bidclose'])
 
-            # Update slow EMA line
-            self.ema_slow_line.set_data(df_view.index, df_view['ema_slow'])
-
             # Update trigger_close_buy markers
             self.trigger_close_buy.set_data(df_view[df_view['buy'] == -1.0].index, 
                                             df_view[df_view['buy'] == -1.0]['bidclose'])
@@ -160,8 +162,9 @@ class ForexPlotter:
             # Adjust y-axis limits dynamically based on visible data
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
             
-            return [self.price_line, self.ema_line,
-                    self.ema_slow_line, 
+            return [self.price_line, 
+                    self.ema_short_line,
+                    self.ema_long_line,
                     self.peaks_min_inf, 
                     self.peaks_max_inf, 
                     self.trigger_buy, 
