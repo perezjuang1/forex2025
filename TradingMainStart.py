@@ -4,9 +4,13 @@ import datetime as dt
 import time
 import numpy as np
 import traceback
+import threading
+from ConfigurationOperation import ConfigurationOperation
 
 class Trading:
-    def __init__(self, days, timeframe='m5', instrument="EUR/USD"):
+    def __init__(self, days, timeframe=None, instrument="EUR/USD"):
+        if timeframe is None:
+            timeframe = ConfigurationOperation.timeframe
         self.timeframe = timeframe
         self.instrument = instrument
         self.robotconnection = RobotConnection()
@@ -49,18 +53,27 @@ class Trading:
             print(traceback.format_exc())
             raise 
 
-# Example usage
-if __name__ == "__main__":
+def run_trading_for_instrument(instrument):
     while True:
         trading = None
         try:
-            time.sleep(5)  # Esperar antes de reiniciar
-            trading = Trading(days=7, timeframe='m5', instrument="EUR/USD")
+            time.sleep(5)
+            trading = Trading(days=7, instrument=instrument)
             trading.start_trade_monitor()
         except Exception as e:
-            print("Fatal error occurred. Restarting Trading session...")
+            print(f"Fatal error occurred for {instrument}. Restarting Trading session...")
             print(traceback.format_exc())
-            del trading  # Forzar destructor
+            del trading
             print("20 seconds to restart...")
-            time.sleep(240)  # Esperar antes de reiniciar
+            time.sleep(20)
+
+if __name__ == "__main__":
+    instruments = ["EUR/USD", "GBP/USD", "EUR/JPY", "AUD/JPY", "EUR/CAD"]  # Agrega las monedas que quieras
+    threads = []
+    for instrument in instruments:
+        t = threading.Thread(target=run_trading_for_instrument, args=(instrument,))
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
 

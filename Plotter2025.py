@@ -8,6 +8,8 @@ import warnings
 import os
 from datetime import datetime
 import numpy as np
+import multiprocessing
+from ConfigurationOperation import ConfigurationOperation
 
 # Ignore specific matplotlib warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Matplotlib.*")
@@ -17,9 +19,6 @@ class PlotConfig:
     """Configuration for the plot"""
     instrument: str
     timeframe: str
-    timeframe_sup: str
-    timeframe_sup2: str
-    days: int
 
 class ForexPlotter:
     """Class to handle forex data plotting with animation"""
@@ -28,6 +27,7 @@ class ForexPlotter:
         """Initialize the plotter with configuration"""
         self.config = config
         self.fig, self.ax = plt.subplots(figsize=(15, 8))
+        self.fig.canvas.manager.set_window_title(f"{self.config.instrument} - Forex Plotter")
         self.setup_plot()
         self.setup_lines()
         self.data = None
@@ -49,12 +49,10 @@ class ForexPlotter:
         # Price line
         self.price_line, = self.ax.plot([], [], linestyle='dotted', color='#00ff00', label='Price')
 
-        # EMA lines for trend calculation
-        self.ema_short_line, = self.ax.plot([], [], linestyle='solid', color='#ff00ff', label='EMA Short (10)', alpha=0.7)
-        self.ema_long_line, = self.ax.plot([], [], linestyle='solid', color='#00ffff', label='EMA Long (20)', alpha=0.7)
-
-        # Add trend line
-        self.trend_line, = self.ax.plot([], [], linestyle='solid', color='red', label='Trend', alpha=0.3)
+        # EMA lines usadas en la estrategia
+        self.ema30_line, = self.ax.plot([], [], linestyle='solid', color='#ff00ff', label='EMA 30', alpha=0.7)
+        self.ema50_line, = self.ax.plot([], [], linestyle='solid', color='#00ffff', label='EMA 50', alpha=0.7)
+        self.ema100_line, = self.ax.plot([], [], linestyle='solid', color='#ffff00', label='EMA 100', alpha=0.7)
 
         # Peak markers
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
@@ -129,16 +127,14 @@ class ForexPlotter:
                 print("No data in the current view range")
                 return []
 
-            # Update trend line with the new trend_line column
-            self.trend_line.set_data(df_view.index, df_view['trend_line'])
-            
             # Update price line
             self.price_line.set_data(df_view.index, df_view['bidclose'])
-            
-            # Update EMA lines for trend calculation
-            self.ema_short_line.set_data(df_view.index, df_view['ema_short'])
-            self.ema_long_line.set_data(df_view.index, df_view['ema_long'])
-            
+
+            # Update EMA lines usadas en la estrategia
+            self.ema30_line.set_data(df_view.index, df_view['ema30'])
+            self.ema50_line.set_data(df_view.index, df_view['ema50'])
+            self.ema100_line.set_data(df_view.index, df_view['ema100'])
+
             # Update peaks
             self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1.0].index, 
                                        df_view[df_view['peaks_min'] == 1.0]['bidclose'])
@@ -163,15 +159,15 @@ class ForexPlotter:
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
             
             return [self.price_line, 
-                    self.ema_short_line,
-                    self.ema_long_line,
+                    self.ema30_line,
+                    self.ema50_line,
+                    self.ema100_line,
                     self.peaks_min_inf, 
                     self.peaks_max_inf, 
                     self.trigger_buy, 
                     self.trigger_sell, 
                     self.trigger_close_buy, 
-                    self.trigger_close_sell,
-                    self.trend_line]
+                    self.trigger_close_sell]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
@@ -200,19 +196,20 @@ class ForexPlotter:
         )
         plt.show()
 
-
-def main():
-    """Main function to run the plotter"""
+def run_plotter_for_instrument(instrument):
     config = PlotConfig(
-        instrument="EUR_USD",
-        timeframe="m5",
-        timeframe_sup="m15",
-        timeframe_sup2="m30",
-        days=1
+        instrument=instrument.replace("/", "_"),  # Asegúrate que el nombre del archivo coincida
+        timeframe=ConfigurationOperation.timeframe
     )
-    
     plotter = ForexPlotter(config)
     plotter.animate()
 
 if __name__ == "__main__":
-    main()
+    instruments = ["EUR_USD", "GBP_USD", "EUR_JPY", "AUD_JPY", "EUR_CAD"]  # Usa el mismo formato que tus archivos CSV
+    processes = []
+    for instrument in instruments:
+        p = multiprocessing.Process(target=run_plotter_for_instrument, args=(instrument,))
+        p.start()
+        processes.append(p)
+    for p in processes:
+        p.join()

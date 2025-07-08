@@ -103,31 +103,19 @@ class RobotPrice:
         """
         fileName = self.instrument.replace("/", "_") + "_" + self.timeframe + ".csv"
         pricedata.to_csv(fileName)
-        self._log_message(f"Archivo guardado: {fileName}")
 
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Calcula y agrega solo los indicadores necesarios al DataFrame.
         """
         df = self.calculate_peaks(df)
-        df = self.calculate_trend(df)
-        df['rsi'] = self.calculate_rsi(df, 'bidclose')
+        df['ema30'] = df['bidclose'].ewm(span=30).mean()
+        df['ema50'] = df['bidclose'].ewm(span=50).mean()
+        df['ema100'] = df['bidclose'].ewm(span=100).mean()
         df = self.apply_triggers_strategy(df, 'buy')
         df = self.apply_triggers_strategy(df, 'sell')
         self.triggers_trades(df)
         return df
-
-    def calculate_rsi(self, df: pd.DataFrame, column: str) -> pd.Series:
-        """
-        Calcula el RSI estándar para una columna dada (14 periodos, método clásico).
-        """
-        rsi_window = 14
-        delta = df[column].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=rsi_window).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_window).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
 
     def calculate_peaks(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -138,33 +126,9 @@ class RobotPrice:
         df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.greater, order=5)[0]]['value1']
         return df
 
-    def calculate_trend(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Calcula la tendencia del precio usando picos y volumen - VERSIÓN ULTRA SIMPLIFICADA.
-        """
-        df['trend'] = 0
-        df['trend_line'] = df['bidclose']
-        
-        # Calcular tendencia simple basada en EMA
-        df['ema_short'] = df['bidclose'].ewm(span=10).mean()
-        df['ema_long'] = df['bidclose'].ewm(span=20).mean()
-        
-        # Tendencia basada en EMA cruzada
-        for i in range(1, len(df)):
-            if df['ema_short'].iloc[i] > df['ema_long'].iloc[i] and df['ema_short'].iloc[i-1] <= df['ema_long'].iloc[i-1]:
-                df.loc[df.index[i:], 'trend'] = 1  # Tendencia alcista
-            elif df['ema_short'].iloc[i] < df['ema_long'].iloc[i] and df['ema_short'].iloc[i-1] >= df['ema_long'].iloc[i-1]:
-                df.loc[df.index[i:], 'trend'] = -1  # Tendencia bajista
-            # Si no hay cruce, mantener la tendencia anterior
-        
-        # Línea de tendencia simple
-        df['trend_line'] = df['bidclose'].rolling(window=5).mean()
-        
-        return df
-
     def apply_triggers_strategy(self, df: pd.DataFrame, strategy_type: str) -> pd.DataFrame:
         """
-        Aplica la estrategia de triggers para buy/sell incluyendo análisis de tendencia.
+        Aplica la estrategia de triggers para buy/sell considerando la posición de las EMAs para confirmar tendencia.
         """
         SIGNAL_OPEN = 1
         SIGNAL_CLOSE = -1
@@ -175,31 +139,20 @@ class RobotPrice:
         close_condition = 'peaks_max' if strategy_type == 'buy' else 'peaks_min'
         is_position_open = False
         for i in range(len(df)):
-            current_rsi = df['rsi'].iloc[i]
-            current_trend = df['trend'].iloc[i]
             is_peak = df[open_condition].iloc[i] == 1
-            if not is_position_open and is_peak:
-                # SOLO VERIFICAR RSI Y QUE SEA UN PICO
-                if strategy_type == 'buy':
-                    rsi_ok = 10 < current_rsi < 90
-                else:
-                    rsi_ok = 10 < current_rsi < 90
-                if rsi_ok:
-                    is_position_open = True
-                    df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
-                    self._log_message(
-                        f"Señal {strategy_type.upper()} generada - "
-                        f"Tendencia: {current_trend} ({'Alcista' if current_trend == 1 else 'Bajista' if current_trend == -1 else 'Lateral'}), "
-                        f"RSI: {current_rsi:.2f}"
-                    )
-                else:
-                    self._log_message(
-                        f"Pico detectado pero RSI fuera de rango ({current_rsi:.2f}) para {strategy_type.upper()}"
-                    )
+            ema30 = df['ema30'].iloc[i]
+            ema50 = df['ema50'].iloc[i]
+            ema100 = df['ema100'].iloc[i]
+            if strategy_type == 'buy':
+                emas_ok = ema30 > ema50 > ema100
+            else:
+                emas_ok = ema30 < ema50 < ema100
+            if not is_position_open and is_peak and emas_ok:
+                is_position_open = True
+                df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
             elif is_position_open and df[close_condition].iloc[i] == 1:
                 is_position_open = False
-                df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE
-                self._log_message(f"Señal de CIERRE {strategy_type.upper()} generada en pico opuesto")
+                df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE                
         return df
 
     def triggers_trades(self, df: pd.DataFrame):
@@ -207,7 +160,7 @@ class RobotPrice:
         Evalúa las señales generadas por los triggers y ejecuta operaciones si corresponde, excluyendo la última vela (en formación).
         """
         try:
-            recent_rows = df.iloc[-7:-1]  # Excluye la última vela
+            recent_rows = df.iloc[-7:-4]  # Excluye las últimas 4 velas
             buy_signals = recent_rows[recent_rows['buy'] == 1]
             sell_signals = recent_rows[recent_rows['sell'] == 1]
             has_buy_signal = not buy_signals.empty
@@ -217,48 +170,40 @@ class RobotPrice:
                 last_buy = buy_signals.iloc[-1]
                 buy_fecha = last_buy['date']
                 buy_price = last_buy['bidclose']
-                buy_trend = last_buy['trend']
-                buy_trend_desc = 'Alcista' if buy_trend == 1 else 'Bajista' if buy_trend == -1 else 'Lateral'
             if has_sell_signal:
                 last_sell = sell_signals.iloc[-1]
                 sell_fecha = last_sell['date']
                 sell_price = last_sell['bidclose']
-                sell_trend = last_sell['trend']
-                sell_trend_desc = 'Alcista' if sell_trend == 1 else 'Bajista' if sell_trend == -1 else 'Lateral'
             if has_buy_signal:
                 if self.existingOperation(instrument=self.instrument, BuySell="S"):
                     self._log_message(
-                        f"\n[CIERRE SELL]\n  Motivo: Señal de COMPRA detectada\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Tendencia: {buy_trend} ({buy_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"[CIERRE SELL] Motivo: Señal de COMPRA detectada | Fecha: {buy_fecha} | Precio: {buy_price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
                     )
                     self.CloseOperation(instrument=self.instrument, BuySell="S")
                 if not self.existingOperation(instrument=self.instrument, BuySell="B"):
                     self._log_message(
-                        f"\n[APERTURA BUY]\n  Motivo: Señal de COMPRA detectada\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Tendencia: {buy_trend} ({buy_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"[APERTURA BUY] Motivo: Señal de COMPRA detectada | Fecha: {buy_fecha} | Precio: {buy_price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
                     )
                     self.createEntryOrder(str_buy_sell="B")
                 else:
                     self._log_message(
-                        f"\n[INFO]\n  Ya existe operación BUY abierta\n  Fecha: {buy_fecha}\n  Precio: {buy_price}\n  Tendencia: {buy_trend} ({buy_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"[INFO] Ya existe operación BUY abierta | Fecha: {buy_fecha} | Precio: {buy_price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
                     )
             if has_sell_signal:
                 if self.existingOperation(instrument=self.instrument, BuySell="B"):
                     self._log_message(
-                        f"\n[CIERRE BUY]\n  Motivo: Señal de VENTA detectada\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Tendencia: {sell_trend} ({sell_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"[CIERRE BUY] Motivo: Señal de VENTA detectada | Fecha: {sell_fecha} | Precio: {sell_price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
                     )
                     self.CloseOperation(instrument=self.instrument, BuySell="B")
                 if not self.existingOperation(instrument=self.instrument, BuySell="S"):
                     self._log_message(
-                        f"\n[APERTURA SELL]\n  Motivo: Señal de VENTA detectada\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Tendencia: {sell_trend} ({sell_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"[APERTURA SELL] Motivo: Señal de VENTA detectada | Fecha: {sell_fecha} | Precio: {sell_price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
                     )
                     self.createEntryOrder(str_buy_sell="S")
                 else:
                     self._log_message(
-                        f"\n[INFO]\n  Ya existe operación SELL abierta\n  Fecha: {sell_fecha}\n  Precio: {sell_price}\n  Tendencia: {sell_trend} ({sell_trend_desc})\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
+                        f"[INFO] Ya existe operación SELL abierta | Fecha: {sell_fecha} | Precio: {sell_price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
                     )
-            if not has_buy_signal and not has_sell_signal:
-                self._log_message(
-                    f"\n[INFO]\n  No se detectaron señales de compra ni venta en las últimas velas\n  Instrumento: {self.instrument}\n  Timeframe: {self.timeframe}\n"
-                )
         except Exception as e:
             self._log_message(f"Error en evaluate_triggers_signals: {e}", level='error')
 
