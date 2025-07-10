@@ -68,7 +68,8 @@ def run_trading_for_instrument(instrument):
             time.sleep(20)
 
 if __name__ == "__main__":
-    instruments = ["EUR/USD", "GBP/USD", "EUR/JPY", "AUD/JPY", "EUR/CAD"]  # Agrega las monedas que quieras
+    from ConfigurationOperation import ConfigurationOperation
+    instruments = ConfigurationOperation.instruments
     threads = []
     for instrument in instruments:
         t = threading.Thread(target=run_trading_for_instrument, args=(instrument,))

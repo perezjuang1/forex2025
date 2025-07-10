@@ -49,23 +49,28 @@ class ForexPlotter:
         # Price line
         self.price_line, = self.ax.plot([], [], linestyle='dotted', color='#00ff00', label='Price')
 
-        # EMA lines usadas en la estrategia
-        self.ema30_line, = self.ax.plot([], [], linestyle='solid', color='#ff00ff', label='EMA 30', alpha=0.7)
-        self.ema50_line, = self.ax.plot([], [], linestyle='solid', color='#00ffff', label='EMA 50', alpha=0.7)
-        self.ema100_line, = self.ax.plot([], [], linestyle='solid', color='#ffff00', label='EMA 100', alpha=0.7)
-
         # Peak markers
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
         self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='orange', label='Max Peaks')
        
         # Trigger markers
-        self.trigger_buy, = self.ax.plot([], [], '^', color='#00ff00', label='Buy Trigger')
-        self.trigger_sell, = self.ax.plot([], [], 'v', color='#ff0000', label='Sell Trigger')
-        
-        # Add markers for closed buy and sell operations
-        self.trigger_close_buy, = self.ax.plot([], [], '*', color='#00ff00', label='Close Buy Trigger')
-        self.trigger_close_sell, = self.ax.plot([], [], '*', color='#ff0000', label='Close Sell Trigger')
+        self.trigger_buy, = self.ax.plot([], [], 'D', color='purple', label='Buy Trigger', zorder=4)
+        self.trigger_sell, = self.ax.plot([], [], 'd', color='crimson', label='Sell Trigger', zorder=4)
 
+        # Línea EMA 10
+        self.ema_10_line, = self.ax.plot([], [], '-', color='yellow', linewidth=2, label='EMA 10', zorder=2)
+
+        # Nueva línea para peaks_min_ema_10 (mínimos EMA 10)
+        self.peaks_min_ema_10_line, = self.ax.plot([], [], 'x', color='cyan', label='Min EMA 10')
+        # Nueva línea para peaks_max_ema_10 (máximos EMA 10)
+        self.peaks_max_ema_10_line, = self.ax.plot([], [], 'x', color='magenta', label='Max EMA 10')
+
+        # Línea para zonas de alto volumen (eliminada)
+        # self.high_volume_zone_line, = self.ax.plot([], [], '|', color='yellow', markersize=15, label='High Volume Zone')
+        # Confluencia de picos: zona de apertura de trade
+        self.trade_open_zone_min_line, = self.ax.plot([], [], '*', color='lime', markersize=18, label='Trade Open Buy (Confluence)', zorder=1)
+        self.trade_open_zone_max_line, = self.ax.plot([], [], '*', color='red', markersize=18, label='Trade Open Sell (Confluence)', zorder=1)
+        
         # Add legend with white text
         legend = self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
         for text in legend.get_texts():
@@ -130,10 +135,11 @@ class ForexPlotter:
             # Update price line
             self.price_line.set_data(df_view.index, df_view['bidclose'])
 
-            # Update EMA lines usadas en la estrategia
-            self.ema30_line.set_data(df_view.index, df_view['ema30'])
-            self.ema50_line.set_data(df_view.index, df_view['ema50'])
-            self.ema100_line.set_data(df_view.index, df_view['ema100'])
+            # EMA 10
+            if 'ema_10' in df_view.columns:
+                self.ema_10_line.set_data(df_view.index, df_view['ema_10'])
+            else:
+                self.ema_10_line.set_data([], [])
 
             # Update peaks
             self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1.0].index, 
@@ -141,33 +147,56 @@ class ForexPlotter:
             self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1.0].index, 
                                        df_view[df_view['peaks_max'] == 1.0]['bidclose'])
             
-            # Update trigger markers
-            self.trigger_buy.set_data(df_view[df_view['buy'] == 1.0].index, 
-                                     df_view[df_view['buy'] == 1.0]['bidclose'])
-            self.trigger_sell.set_data(df_view[df_view['sell'] == 1.0].index, 
-                                      df_view[df_view['sell'] == 1.0]['bidclose'])
+            # Update trigger markers para la nueva señal
+            self.trigger_buy.set_data(df_view[df_view['signal'] == 1.0].index, df_view[df_view['signal'] == 1.0]['bidclose'])
+            self.trigger_sell.set_data(df_view[df_view['signal'] == -1.0].index, df_view[df_view['signal'] == -1.0]['bidclose'])
 
-            # Update trigger_close_buy markers
-            self.trigger_close_buy.set_data(df_view[df_view['buy'] == -1.0].index, 
-                                            df_view[df_view['buy'] == -1.0]['bidclose'])
+            # Nueva línea: peaks_min_ema_10 (mínimos EMA 10)
+            self.peaks_min_ema_10_line.set_data(
+                df_view[df_view['peaks_min_ema_10'] == 1].index,
+                df_view[df_view['peaks_min_ema_10'] == 1]['ema_10']
+            )
+            # Nueva línea: peaks_max_ema_10 (máximos EMA 10)
+            self.peaks_max_ema_10_line.set_data(
+                df_view[df_view['peaks_max_ema_10'] == 1].index,
+                df_view[df_view['peaks_max_ema_10'] == 1]['ema_10']
+            )
 
-            # Update trigger_close_sell markers
-            self.trigger_close_sell.set_data(df_view[df_view['sell'] == -1.0].index, 
-                                             df_view[df_view['sell'] == -1.0]['bidclose'])
+            # Línea para zonas de alto volumen (eliminada)
+            # if 'high_volume_zone' in df_view.columns:
+            #     high_vol_idx = df_view[df_view['high_volume_zone'] == 1].index
+            #     high_vol_price = df_view.loc[high_vol_idx, 'bidclose']
+            #     self.high_volume_zone_line.set_data(high_vol_idx, high_vol_price)
+            # else:
+            #     self.high_volume_zone_line.set_data([], [])
+            # Confluencia de picos: zona de apertura de trade
+            if 'trade_open_zone_min' in df_view.columns:
+                min_idx = df_view[df_view['trade_open_zone_min'] == 1].index
+                min_price = df_view.loc[min_idx, 'bidclose']
+                self.trade_open_zone_min_line.set_data(min_idx, min_price)
+            else:
+                self.trade_open_zone_min_line.set_data([], [])
+            if 'trade_open_zone_max' in df_view.columns:
+                max_idx = df_view[df_view['trade_open_zone_max'] == 1].index
+                max_price = df_view.loc[max_idx, 'bidclose']
+                self.trade_open_zone_max_line.set_data(max_idx, max_price)
+            else:
+                self.trade_open_zone_max_line.set_data([], [])
 
             # Adjust y-axis limits dynamically based on visible data
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
             
             return [self.price_line, 
-                    self.ema30_line,
-                    self.ema50_line,
-                    self.ema100_line,
                     self.peaks_min_inf, 
                     self.peaks_max_inf, 
                     self.trigger_buy, 
-                    self.trigger_sell, 
-                    self.trigger_close_buy, 
-                    self.trigger_close_sell]
+                    self.trigger_sell,
+                    self.peaks_min_ema_10_line,
+                    self.peaks_max_ema_10_line,
+                    self.ema_10_line,
+                    # self.high_volume_zone_line,  # Eliminada
+                    self.trade_open_zone_min_line,
+                    self.trade_open_zone_max_line]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
@@ -205,7 +234,8 @@ def run_plotter_for_instrument(instrument):
     plotter.animate()
 
 if __name__ == "__main__":
-    instruments = ["EUR_USD", "GBP_USD", "EUR_JPY", "AUD_JPY", "EUR_CAD"]  # Usa el mismo formato que tus archivos CSV
+    from ConfigurationOperation import ConfigurationOperation
+    instruments = [i.replace("/", "_") for i in ConfigurationOperation.instruments]
     processes = []
     for instrument in instruments:
         p = multiprocessing.Process(target=run_plotter_for_instrument, args=(instrument,))

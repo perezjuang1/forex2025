@@ -32,22 +32,24 @@ class RobotPrice:
 
     def _setup_logging(self):
         """
-        Configura el sistema de logging.
+        Configura el sistema de logging para que cada instrumento tenga su propio archivo de log.
         """
         if not os.path.exists('logs'):
             os.makedirs('logs')
-        self.logger = logging.getLogger('RobotPrice')
+        self.logger = logging.getLogger(f'RobotPrice_{self.instrument}')
         self.logger.setLevel(logging.INFO)
-        log_file = f'logs/robot_price_{datetime.now().strftime("%Y%m%d")}.log'
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.INFO)
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s\n%(message)s')
-        file_handler.setFormatter(formatter)
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
+        log_file = f'logs/robot_price_{self.instrument.replace("/", "_")}_{datetime.now().strftime("%Y%m%d")}.log'
+        # Evitar handlers duplicados
+        if not self.logger.handlers:
+            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            file_handler.setLevel(logging.INFO)
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.INFO)
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s\n%(message)s')
+            file_handler.setFormatter(formatter)
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+            self.logger.addHandler(console_handler)
 
     def _log_message(self, message: str, level: str = 'info'):
         """
@@ -72,6 +74,11 @@ class RobotPrice:
         """
         Obtiene y guarda los datos de precio, calcula indicadores y señales.
         """
+        # Verificar si existe operación abierta para el instrumento actual (BUY y SELL)
+        exists_buy = self.existingOperation(instrument, 'B')
+        exists_sell = self.existingOperation(instrument, 'S')
+        print(f"DEBUG: Existe operación BUY para {instrument}: {exists_buy}")
+        print(f"DEBUG: Existe operación SELL para {instrument}: {exists_sell}")
         europe_London_datetime = datetime.now(ZoneInfo('Europe/London'))
         date_from = europe_London_datetime - dt.timedelta(days=days)
         date_to = europe_London_datetime
@@ -106,63 +113,72 @@ class RobotPrice:
 
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calcula y agrega solo los indicadores necesarios al DataFrame.
+        Calcula y agrega solo los indicadores necesarios al DataFrame (solo picos y confluencias).
         """
         df = self.calculate_peaks(df)
-        df['ema30'] = df['bidclose'].ewm(span=30).mean()
-        df['ema50'] = df['bidclose'].ewm(span=50).mean()
-        df['ema100'] = df['bidclose'].ewm(span=100).mean()
-        df = self.apply_triggers_strategy(df, 'buy')
-        df = self.apply_triggers_strategy(df, 'sell')
-        self.triggers_trades(df)
+        df = self.apply_triggers_strategy(df)
+
+        self.triggers_trades_close(df)
+        self.triggers_trades_open(df)
         return df
 
-    def calculate_peaks(self, df: pd.DataFrame) -> pd.DataFrame:
+    def calculate_peaks(self, df: pd.DataFrame, order: int = 100, tolerance: int = 6) -> pd.DataFrame:
         """
-        Detecta picos mínimos y máximos en los precios.
+        Detecta picos mínimos y máximos en los precios y en la EMA 10.
+        Marca confluencia si los picos ocurren en velas cercanas (tolerancia).
         """
         df['value1'] = 1
-        df['peaks_min'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.less, order=5)[0]]['value1']
-        df['peaks_max'] = df.iloc[signal.argrelextrema(df['bidclose'].values, np.greater, order=5)[0]]['value1']
+        peaks_min_idx = signal.argrelextrema(df['bidclose'].values, np.less, order=order)[0]
+        peaks_max_idx = signal.argrelextrema(df['bidclose'].values, np.greater, order=order)[0]
+        df['peaks_min'] = 0
+        df['peaks_max'] = 0
+        df.loc[peaks_min_idx, 'peaks_min'] = 1
+        df.loc[peaks_max_idx, 'peaks_max'] = 1
+        # Calcular EMA 10
+        df['ema_10'] = df['bidclose'].ewm(span=10, adjust=False).mean()
+        peaks_ema_min = signal.argrelextrema(df['ema_10'].values, np.less, order=order)[0]
+        peaks_ema_max = signal.argrelextrema(df['ema_10'].values, np.greater, order=order)[0]
+        df['peaks_min_ema_10'] = 0
+        df['peaks_max_ema_10'] = 0
+        df.loc[peaks_ema_min, 'peaks_min_ema_10'] = 1
+        df.loc[peaks_ema_max, 'peaks_max_ema_10'] = 1
+        # Confluencia con tolerancia
+        df['trade_open_zone_min'] = 0
+        df['trade_open_zone_max'] = 0
+        for idx in peaks_min_idx:
+            # Buscar picos de EMA dentro de la tolerancia
+            if any(abs(idx - ema_idx) <= tolerance for ema_idx in peaks_ema_min):
+                df.at[idx, 'trade_open_zone_min'] = 1
+        for idx in peaks_max_idx:
+            if any(abs(idx - ema_idx) <= tolerance for ema_idx in peaks_ema_max):
+                df.at[idx, 'trade_open_zone_max'] = 1
+
         return df
 
-    def apply_triggers_strategy(self, df: pd.DataFrame, strategy_type: str) -> pd.DataFrame:
+    def apply_triggers_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Aplica la estrategia de triggers para buy/sell considerando la posición de las EMAs para confirmar tendencia.
+        Estrategia: Buy trigger solo en zonas de confluencia mínima, Sell trigger solo en zonas de confluencia máxima.
         """
-        SIGNAL_OPEN = 1
-        SIGNAL_CLOSE = -1
+        SIGNAL_BUY = 1
+        SIGNAL_SELL = -1
         SIGNAL_NEUTRAL = 0
-        signal_column = strategy_type
-        df[signal_column] = SIGNAL_NEUTRAL
-        open_condition = 'peaks_min' if strategy_type == 'buy' else 'peaks_max'
-        close_condition = 'peaks_max' if strategy_type == 'buy' else 'peaks_min'
-        is_position_open = False
+        df['signal'] = SIGNAL_NEUTRAL
         for i in range(len(df)):
-            is_peak = df[open_condition].iloc[i] == 1
-            ema30 = df['ema30'].iloc[i]
-            ema50 = df['ema50'].iloc[i]
-            ema100 = df['ema100'].iloc[i]
-            if strategy_type == 'buy':
-                emas_ok = ema30 > ema50 > ema100
-            else:
-                emas_ok = ema30 < ema50 < ema100
-            if not is_position_open and is_peak and emas_ok:
-                is_position_open = True
-                df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_OPEN
-            elif is_position_open and df[close_condition].iloc[i] == 1:
-                is_position_open = False
-                df.iloc[i, df.columns.get_loc(signal_column)] = SIGNAL_CLOSE                
+            if df['trade_open_zone_min'].iloc[i] == 1:
+                df.iloc[i, df.columns.get_loc('signal')] = SIGNAL_BUY
+            elif df['trade_open_zone_max'].iloc[i] == 1:
+                df.iloc[i, df.columns.get_loc('signal')] = SIGNAL_SELL
+            # Si no, queda neutral
         return df
 
-    def triggers_trades(self, df: pd.DataFrame):
+    def triggers_trades_open(self, df: pd.DataFrame):
         """
         Evalúa las señales generadas por los triggers y ejecuta operaciones si corresponde, excluyendo la última vela (en formación).
         """
         try:
             recent_rows = df.iloc[-7:-4]  # Excluye las últimas 4 velas
-            buy_signals = recent_rows[recent_rows['buy'] == 1]
-            sell_signals = recent_rows[recent_rows['sell'] == 1]
+            buy_signals = recent_rows[recent_rows['signal'] == 1]
+            sell_signals = recent_rows[recent_rows['signal'] == -1]
             has_buy_signal = not buy_signals.empty
             has_sell_signal = not sell_signals.empty
             # Definir variables para logs
@@ -205,20 +221,63 @@ class RobotPrice:
                         f"[INFO] Ya existe operación SELL abierta | Fecha: {sell_fecha} | Precio: {sell_price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
                     )
         except Exception as e:
-            self._log_message(f"Error en evaluate_triggers_signals: {e}", level='error')
+            self._log_message(f"Error en triggers_trades_open: {e}", level='error')
+
+    def triggers_trades_close(self, df: pd.DataFrame):
+        """
+        Cierra operaciones abiertas si se detecta un pico máximo (cierra BUY) o un pico mínimo (cierra SELL) en las últimas velas.
+        """
+        try:
+            recent_rows = df.iloc[-7:-4]  # Excluye las últimas 4 velas
+            # Cerrar BUY si hay pico máximo
+            peaks_max = recent_rows[recent_rows['peaks_max'] == 1]
+            if not peaks_max.empty:
+                last_peak = peaks_max.iloc[-1]
+                fecha = last_peak['date']
+                price = last_peak['bidclose']
+                if self.existingOperation(instrument=self.instrument, BuySell="B"):
+                    self._log_message(
+                        f"[CIERRE BUY] Motivo: Pico máximo detectado | Fecha: {fecha} | Precio: {price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
+                    )
+                    self.CloseOperation(instrument=self.instrument, BuySell="B")
+            # Cerrar SELL si hay pico mínimo
+            peaks_min = recent_rows[recent_rows['peaks_min'] == 1]
+            if not peaks_min.empty:
+                last_peak = peaks_min.iloc[-1]
+                fecha = last_peak['date']
+                price = last_peak['bidclose']
+                if self.existingOperation(instrument=self.instrument, BuySell="S"):
+                    self._log_message(
+                        f"[CIERRE SELL] Motivo: Pico mínimo detectado | Fecha: {fecha} | Precio: {price} | Instrumento: {self.instrument} | Timeframe: {self.timeframe}"
+                    )
+                    self.CloseOperation(instrument=self.instrument, BuySell="S")
+        except Exception as e:
+            self._log_message(f"Error en triggers_trades_close: {e}", level='error')
 
     def existingOperation(self, instrument: str, BuySell: str) -> bool:
-        """
-        Verifica si existe una operación abierta para el instrumento y tipo Buy/Sell.
-        """
         existOperation = False
         try:
             trades_table = self.connection.get_table(self.connection.TRADES)
-            for trade_row in trades_table:
-                if BuySell == trade_row.BuySell:
-                    existOperation = True
+            try:
+                for row in trades_table:
+                    if getattr(row, 'instrument', None) == instrument and getattr(row, 'buy_sell', None) == BuySell:
+                        existOperation = True
+                        self._log_message(f"Operacion encontrada: Instrumento={instrument}, Tipo={BuySell}")
+            except Exception as e:
+                try:
+                    size = trades_table.size() if callable(trades_table.size) else trades_table.size
+                    for i in range(size):
+                        row = trades_table.get_row(i)
+                        if getattr(row, 'instrument', None) == instrument and getattr(row, 'buy_sell', None) == BuySell:
+                            existOperation = True
+                            self._log_message(f"Operacion encontrada: Instrumento={instrument}, Tipo={BuySell}")
+                except Exception as e2:
+                    pass
+            if not existOperation:
+                self._log_message(f"No existe operacion para Instrumento={instrument}, Tipo={BuySell}")
             return existOperation
         except Exception as e:
+            self._log_message(f"Exception en existingOperation: {e}", level='error')
             return existOperation
 
     def CloseOperation(self, instrument: str, BuySell: str):
@@ -359,3 +418,44 @@ class RobotPrice:
             self._log_message(f"Operacion ABIERTA: Instrumento={str_instrument}, Tipo={'BUY' if str_buy_sell == fxcorepy.Constants.BUY else 'SELL'}, Monto={amount}, Stop={stop}, Limit={limit}")
         except Exception as e:
             self._log_message(f"Error al abrir operacion: {e}", level='error')
+    
+    def tradeHasAtLeast10Pips(self, instrument: str, BuySell: str) -> bool:
+        """
+        Verifica si existe una operación abierta para el instrumento y tipo Buy/Sell
+        que haya ganado al menos 10 pips.
+        """
+        pip_size = 0.01 if "JPY" in instrument else 0.0001
+        try:
+            trades_table = self.connection.get_table(self.connection.TRADES)
+            for row in trades_table:
+                if getattr(row, 'instrument', None) == instrument and getattr(row, 'buy_sell', None) == BuySell:
+                    open_price = getattr(row, 'open', None)
+                    is_buy = getattr(row, 'isBuy', None)
+                    # Try to get the current price (bid/ask) from your price data or offers table
+                    # For simplicity, let's assume you have a method to get the latest price:
+                    current_price = self.get_latest_price(instrument, BuySell)
+                    if open_price is not None and current_price is not None:
+                        if BuySell == "B":
+                            pips = (current_price - open_price) / pip_size
+                        else:
+                            pips = (open_price - current_price) / pip_size
+                        if pips >= 10:
+                            self._log_message(f"Trade {BuySell} on {instrument} has {pips:.1f} pips (>=10)")
+                            return True
+            return False
+        except Exception as e:
+            self._log_message(f"Exception in tradeHasAtLeast10Pips: {e}", level='error')
+            return False
+
+    def get_latest_price(self, instrument: str, BuySell: str) -> float:
+        """
+        Obtiene el último precio para el instrumento.
+        Puedes implementar esto usando tu DataFrame de precios o la tabla de ofertas.
+        """
+        # Ejemplo usando self.pricedata
+        if self.pricedata is not None and not self.pricedata.empty:
+            # Usar el último precio de cierre
+            return float(self.pricedata['bidclose'].iloc[-1])
+        # Si tienes acceso a la tabla de ofertas, puedes obtener el precio actual de ahí
+        # Si no hay datos, retorna None
+        return None
