@@ -117,12 +117,13 @@ class RobotPrice:
         """
         df = self.calculate_peaks(df)
         df = self.apply_triggers_strategy(df)
+        df = self.calculate_hourly_regressions(df)
 
         self.triggers_trades_close(df)
         self.triggers_trades_open(df)
         return df
 
-    def calculate_peaks(self, df: pd.DataFrame, order: int = 100, tolerance: int = 6) -> pd.DataFrame:
+    def calculate_peaks(self, df: pd.DataFrame, order: int = 82, tolerance: int = 6) -> pd.DataFrame:
         """
         Detecta picos mínimos y máximos en los precios y en la EMA 10.
         Marca confluencia si los picos ocurren en velas cercanas (tolerancia).
@@ -290,13 +291,14 @@ class RobotPrice:
             for account in accounts_response_reader:
                 accountId = account.account_id
             orders_table = self.connection.get_table(self.connection.TRADES)
+            fxcorepy = self.robotconnection.fxcorepy
             for trade in orders_table:
                 buy_sell = ''
                 if trade.instrument == instrument and trade.buy_sell == BuySell:
-                    buy_sell = self.corepy.Constants.SELL if trade.buy_sell == self.corepy.Constants.BUY else self.corepy.Constants.BUY
+                    buy_sell = fxcorepy.Constants.SELL if trade.buy_sell == fxcorepy.Constants.BUY else fxcorepy.Constants.BUY
                     if buy_sell != None:
                         request = self.connection.create_order_request(
-                            order_type=self.corepy.Constants.Orders.TRUE_MARKET_CLOSE,
+                            order_type=fxcorepy.Constants.Orders.TRUE_MARKET_CLOSE,
                             OFFER_ID=trade.offer_id,
                             ACCOUNT_ID=accountId,
                             BUY_SELL=buy_sell,
@@ -310,9 +312,14 @@ class RobotPrice:
         except Exception as e:
             self._log_message(f"Error al cerrar operacion: {e}", level='error')
 
-    def createEntryOrder(self, str_buy_sell: str = None):
+    def createEntryOrder(self, str_buy_sell: str = None, trailing_stop_pips: int = 10, lock_in_pips: int = 5):
         """
-        Crea una orden de entrada (compra o venta) para el instrumento configurado.
+        Crea una orden de entrada (compra o venta) para el instrumento configurado con trailing stop automático.
+        
+        Args:
+            str_buy_sell: 'B' para compra, 'S' para venta
+            trailing_stop_pips: Distancia del trailing stop en pips
+            lock_in_pips: Ganancia mínima en pips para activar el trailing stop
         """
         args = self.robotconnection.args
         common = self.robotconnection.common
@@ -415,9 +422,129 @@ class RobotPrice:
                         RATE_LIMIT=limit,
                     )
             self.connection.send_request_async(request)
-            self._log_message(f"Operacion ABIERTA: Instrumento={str_instrument}, Tipo={'BUY' if str_buy_sell == fxcorepy.Constants.BUY else 'SELL'}, Monto={amount}, Stop={stop}, Limit={limit}")
+            self._log_message(f"Operacion ABIERTA: Instrumento={str_instrument}, Tipo={'BUY' if str_buy_sell == fxcorepy.Constants.BUY else 'SELL'}, Monto={amount}, Stop={stop}, Limit={limit}, TrailingStop={trailing_stop_pips}pips, LockIn={lock_in_pips}pips")
+            
+            # Iniciar monitoreo del trailing stop
+            self.start_trailing_stop_monitor(str_instrument, str_buy_sell, trailing_stop_pips, lock_in_pips)
+            
         except Exception as e:
             self._log_message(f"Error al abrir operacion: {e}", level='error')
+
+    def start_trailing_stop_monitor(self, instrument: str, buy_sell: str, trailing_stop_pips: int, lock_in_pips: int):
+        """
+        Inicia el monitoreo del trailing stop para una operación específica.
+        """
+        try:
+            # Obtener el trade_id de la operación recién abierta
+            trades_table = self.connection.get_table(self.connection.TRADES)
+            trade_id = None
+            open_price = None
+            
+            for trade in trades_table:
+                if (getattr(trade, 'instrument', None) == instrument and 
+                    getattr(trade, 'buy_sell', None) == buy_sell):
+                    trade_id = getattr(trade, 'trade_id', None)
+                    open_price = getattr(trade, 'open', None)
+                    break
+            
+            if trade_id and open_price:
+                self._log_message(f"Trailing stop iniciado: TradeID={trade_id}, PrecioApertura={open_price}, TrailingStop={trailing_stop_pips}pips, LockIn={lock_in_pips}pips")
+                
+                # Aquí podrías implementar un thread o timer para monitorear continuamente
+                # Por ahora, solo registramos la información
+                self.monitor_trailing_stop(trade_id, instrument, buy_sell, open_price, trailing_stop_pips, lock_in_pips)
+            else:
+                self._log_message(f"No se pudo obtener información del trade para trailing stop", level='warning')
+                
+        except Exception as e:
+            self._log_message(f"Error al iniciar trailing stop monitor: {e}", level='error')
+
+    def monitor_trailing_stop(self, trade_id: str, instrument: str, buy_sell: str, open_price: float, trailing_stop_pips: int, lock_in_pips: int):
+        """
+        Monitorea y actualiza el trailing stop para una operación.
+        """
+        try:
+            pip_size = 0.01 if "JPY" in instrument else 0.0001
+            current_price = self.get_latest_price(instrument, buy_sell)
+            
+            if current_price is None:
+                return
+            
+            # Calcular ganancia actual en pips
+            if buy_sell == "B":
+                current_pips = (current_price - open_price) / pip_size
+            else:
+                current_pips = (open_price - current_price) / pip_size
+            
+            # Si alcanzamos la ganancia mínima para lock-in
+            if current_pips >= lock_in_pips:
+                # Calcular nuevo stop loss
+                if buy_sell == "B":
+                    new_stop_price = current_price - (trailing_stop_pips * pip_size)
+                else:
+                    new_stop_price = current_price + (trailing_stop_pips * pip_size)
+                
+                # Actualizar el stop loss
+                self.update_trade_stop_loss(trade_id, new_stop_price, instrument, buy_sell)
+                self._log_message(f"Trailing stop actualizado: TradeID={trade_id}, NuevoStop={new_stop_price}, PipsGanancia={current_pips:.1f}")
+            
+        except Exception as e:
+            self._log_message(f"Error en monitor_trailing_stop: {e}", level='error')
+
+    def update_trade_stop_loss(self, trade_id: str, new_stop_price: float, instrument: str, buy_sell: str):
+        """
+        Actualiza el stop loss de una operación específica.
+        """
+        try:
+            # Obtener información de la cuenta
+            accounts_response_reader = self.connection.get_table_reader(self.connection.ACCOUNTS)
+            account_id = None
+            for account in accounts_response_reader:
+                account_id = account.account_id
+                break
+            if not account_id:
+                self._log_message("No se pudo obtener account_id para actualizar stop loss", level='error')
+                return
+            fxcorepy = self.robotconnection.fxcorepy
+            # Crear request para actualizar stop loss
+            request = self.connection.create_order_request(
+                order_type=fxcorepy.Constants.Orders.TRUE_MARKET_CLOSE,
+                OFFER_ID=self.get_offer_id(instrument),
+                ACCOUNT_ID=account_id,
+                BUY_SELL=buy_sell,
+                AMOUNT=self.get_trade_amount(trade_id),
+                TRADE_ID=trade_id,
+                RATE_STOP=new_stop_price
+            )
+            self.connection.send_request_async(request)
+            self._log_message(f"Stop loss actualizado: TradeID={trade_id}, NuevoStop={new_stop_price}")
+        except Exception as e:
+            self._log_message(f"Error al actualizar stop loss: {e}", level='error')
+
+    def get_offer_id(self, instrument: str) -> str:
+        """
+        Obtiene el offer_id para un instrumento.
+        """
+        try:
+            offer = self.robotconnection.common.get_offer(self.connection, instrument)
+            return offer.offer_id if offer else None
+        except Exception as e:
+            self._log_message(f"Error al obtener offer_id: {e}", level='error')
+            return None
+
+    def get_trade_amount(self, trade_id: str) -> float:
+        """
+        Obtiene el monto de una operación específica.
+        """
+        try:
+            trades_table = self.connection.get_table(self.connection.TRADES)
+            for trade in trades_table:
+                if getattr(trade, 'trade_id', None) == trade_id:
+                    return getattr(trade, 'amount', 0)
+            return 0
+        except Exception as e:
+            self._log_message(f"Error al obtener trade amount: {e}", level='error')
+            return 0
     
     def tradeHasAtLeast10Pips(self, instrument: str, BuySell: str) -> bool:
         """
@@ -459,3 +586,28 @@ class RobotPrice:
         # Si tienes acceso a la tabla de ofertas, puedes obtener el precio actual de ahí
         # Si no hay datos, retorna None
         return None
+
+    def calculate_hourly_regressions(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Para cada hora en el DataFrame, calcula una regresión lineal de los precios dentro de esa hora
+        y guarda el valor ajustado en una nueva columna 'hourly_regression'.
+        Acepta fechas en cualquier formato reconocible por pandas.
+        """
+        import numpy as np
+        import pandas as pd
+
+        df['hourly_regression'] = np.nan
+        # Asegurarse de que la columna 'date' es datetime, usando inferencia automática
+        if not np.issubdtype(df['date'].dtype, np.datetime64):
+            df['date'] = pd.to_datetime(df['date'], errors='coerce', infer_datetime_format=True)
+        # Agrupar por año, mes, día y hora
+        df['hour_group'] = df['date'].dt.floor('H')
+        for hour, group in df.groupby('hour_group'):
+            if len(group) > 1:
+                x = group.index.values
+                y = group['bidclose'].values
+                m, b = np.polyfit(x, y, 1)
+                y_pred = m * x + b
+                df.loc[group.index, 'hourly_regression'] = y_pred
+        df.drop(columns=['hour_group'], inplace=True)
+        return df

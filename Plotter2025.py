@@ -71,6 +71,9 @@ class ForexPlotter:
         self.trade_open_zone_min_line, = self.ax.plot([], [], '*', color='lime', markersize=18, label='Trade Open Buy (Confluence)', zorder=1)
         self.trade_open_zone_max_line, = self.ax.plot([], [], '*', color='red', markersize=18, label='Trade Open Sell (Confluence)', zorder=1)
         
+        # Línea de regresión por hora
+        self.hourly_regression_line, = self.ax.plot([], [], '-', color='white', linewidth=2, label='Regresión Lineal por Hora', zorder=2)
+
         # Add legend with white text
         legend = self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
         for text in legend.get_texts():
@@ -92,8 +95,8 @@ class ForexPlotter:
             df = pd.read_csv(file_name)
             print(f"Loaded {len(df)} rows")
             
-            # Convert date column
-            df['date'] = pd.to_datetime(df['date'], format='%Y%m%d%H%M')
+            # Convert date column (acepta cualquier formato reconocible por pandas)
+            df['date'] = pd.to_datetime(df['date'], errors='coerce', infer_datetime_format=True)
             
             # Create numeric index for plotting
             df['index'] = range(len(df))
@@ -183,6 +186,28 @@ class ForexPlotter:
             else:
                 self.trade_open_zone_max_line.set_data([], [])
 
+            # Línea de regresión por hora (segmentada)
+            if 'hourly_regression' in df_view.columns and 'date' in df_view.columns:
+                self.hourly_regression_line.set_data([], [])  # Limpiar antes de graficar
+                # Agrupar por hora
+                segments_x = []
+                segments_y = []
+                df_view = df_view.copy()
+                df_view['hour_group'] = df_view['date'].dt.floor('H')
+                for _, group in df_view.groupby('hour_group'):
+                    idx = group[~group['hourly_regression'].isna()].index
+                    vals = group.loc[idx, 'hourly_regression']
+                    if len(idx) > 1:
+                        segments_x.append(idx)
+                        segments_y.append(vals)
+                # Graficar cada segmento por separado
+                self.hourly_regression_line.set_data([], [])
+                for x, y in zip(segments_x, segments_y):
+                    self.hourly_regression_line.set_data(x, y)
+                    self.ax.plot(x, y, '-', color='white', linewidth=2, zorder=2)
+            else:
+                self.hourly_regression_line.set_data([], [])
+
             # Adjust y-axis limits dynamically based on visible data
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
             
@@ -196,7 +221,8 @@ class ForexPlotter:
                     self.ema_10_line,
                     # self.high_volume_zone_line,  # Eliminada
                     self.trade_open_zone_min_line,
-                    self.trade_open_zone_max_line]
+                    self.trade_open_zone_max_line,
+                    self.hourly_regression_line]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
