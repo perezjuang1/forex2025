@@ -12,11 +12,23 @@ from ConnectionFxcm import RobotConnection
 import time
 import logging
 import os
+from ConfigurationOperation import ConfigurationOperation
 
 class RobotPrice:
     """
     Clase principal para manejo de precios, indicadores y operaciones de trading.
     """
+
+    # Constantes de señal globales para la clase
+    SIGNAL_BUY = 1
+    SIGNAL_SELL = -1
+    SIGNAL_NEUTRAL = 0
+
+    # Constantes de tendencia globales para la clase
+    TREND_UP = 1         # Tendencia alcista
+    TREND_DOWN = -1      # Tendencia bajista
+    TREND_FLAT = 0       # Sin cambio
+    TREND_NA = np.nan    # No calculado
 
     def __init__(self, days: int, instrument: str, timeframe: str):
         """
@@ -111,19 +123,51 @@ class RobotPrice:
         fileName = self.instrument.replace("/", "_") + "_" + self.timeframe + ".csv"
         pricedata.to_csv(fileName)
 
+    def mark_last_min_trend(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Marca la última fila con el valor de tendencia más reciente de centro_picos_min_trend.
+        """
+        df['last_min_trend_marker'] = np.nan
+        if not df.empty and 'centro_picos_min_trend' in df.columns:
+            # Busca el último valor NO nulo de centro_picos_min_trend
+            last_valid_idx = df['centro_picos_min_trend'].last_valid_index()
+            if last_valid_idx is not None:
+                trend = df.at[last_valid_idx, 'centro_picos_min_trend']
+                last_idx = df.index[-1]
+                df.at[last_idx, 'last_min_trend_marker'] = trend
+        return df
+
+    def mark_last_max_trend(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Marca la última fila con el valor de tendencia más reciente de centro_picos_max_trend.
+        """
+        df['last_max_trend_marker'] = np.nan
+        if not df.empty and 'centro_picos_max_trend' in df.columns:
+            last_valid_idx = df['centro_picos_max_trend'].last_valid_index()
+            if last_valid_idx is not None:
+                trend = df.at[last_valid_idx, 'centro_picos_max_trend']
+                last_idx = df.index[-1]
+                df.at[last_idx, 'last_max_trend_marker'] = trend
+        return df
+
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Calcula y agrega solo los indicadores necesarios al DataFrame (solo picos y confluencias).
         """
-        df = self.calculate_peaks(df)
+        df = self.calculate_peaks(df) 
         df = self.apply_triggers_strategy(df)
-        df = self.calculate_hourly_regressions(df)
-
         self.triggers_trades_close(df)
         self.triggers_trades_open(df)
+        df = self.mark_last_min_trend(df)  # Marcar la última tendencia mínima
+        df = self.mark_last_max_trend(df)  # Marcar la última tendencia máxima
         return df
 
-    def calculate_peaks(self, df: pd.DataFrame, order: int = 82, tolerance: int = 6) -> pd.DataFrame:
+
+
+
+    def calculate_peaks(self, df: pd.DataFrame, order: int = 100, tolerance: int = None) -> pd.DataFrame:
+        if tolerance is None:
+            tolerance = ConfigurationOperation.tolerance_peaks
         """
         Detecta picos mínimos y máximos en los precios y en la EMA 10.
         Marca confluencia si los picos ocurren en velas cercanas (tolerancia).
@@ -137,39 +181,48 @@ class RobotPrice:
         df.loc[peaks_max_idx, 'peaks_max'] = 1
         # Calcular EMA 10
         df['ema_10'] = df['bidclose'].ewm(span=10, adjust=False).mean()
-        peaks_ema_min = signal.argrelextrema(df['ema_10'].values, np.less, order=order)[0]
-        peaks_ema_max = signal.argrelextrema(df['ema_10'].values, np.greater, order=order)[0]
+        # Calcular EMA 30
+        df['ema_30'] = df['bidclose'].ewm(span=30, adjust=False).mean()
+        peaks_ema10_min = signal.argrelextrema(df['ema_10'].values, np.less, order=order)[0]
+        peaks_ema10_max = signal.argrelextrema(df['ema_10'].values, np.greater, order=order)[0]
+        peaks_ema30_min = signal.argrelextrema(df['ema_30'].values, np.less, order=order)[0]
+        peaks_ema30_max = signal.argrelextrema(df['ema_30'].values, np.greater, order=order)[0]
         df['peaks_min_ema_10'] = 0
         df['peaks_max_ema_10'] = 0
-        df.loc[peaks_ema_min, 'peaks_min_ema_10'] = 1
-        df.loc[peaks_ema_max, 'peaks_max_ema_10'] = 1
-        # Confluencia con tolerancia
-        df['trade_open_zone_min'] = 0
-        df['trade_open_zone_max'] = 0
+        df['peaks_min_ema_30'] = 0
+        df['peaks_max_ema_30'] = 0
+        df.loc[peaks_ema10_min, 'peaks_min_ema_10'] = 1
+        df.loc[peaks_ema10_max, 'peaks_max_ema_10'] = 1
+        df.loc[peaks_ema30_min, 'peaks_min_ema_30'] = 1
+        df.loc[peaks_ema30_max, 'peaks_max_ema_30'] = 1
+        # Confluencia con tolerancia para EMA 10 y EMA 30
+        df['trade_open_zone'] = 0
         for idx in peaks_min_idx:
-            # Buscar picos de EMA dentro de la tolerancia
-            if any(abs(idx - ema_idx) <= tolerance for ema_idx in peaks_ema_min):
-                df.at[idx, 'trade_open_zone_min'] = 1
+            # Buscar picos cercanos en ambas EMAs
+            close_ema10 = [ema_idx for ema_idx in peaks_ema10_min if abs(idx - ema_idx) <= tolerance]
+            close_ema30 = [ema_idx for ema_idx in peaks_ema30_min if abs(idx - ema_idx) <= tolerance]
+            # Solo si hay al menos uno en cada EMA y la distancia entre los picos de ambas EMAs es <= tolerance
+            if close_ema10 and close_ema30 and min(abs(e10 - e30) for e10 in close_ema10 for e30 in close_ema30) <= tolerance:
+                    df.at[idx, 'trade_open_zone'] = 1
         for idx in peaks_max_idx:
-            if any(abs(idx - ema_idx) <= tolerance for ema_idx in peaks_ema_max):
-                df.at[idx, 'trade_open_zone_max'] = 1
+            close_ema10 = [ema_idx for ema_idx in peaks_ema10_max if abs(idx - ema_idx) <= tolerance]
+            close_ema30 = [ema_idx for ema_idx in peaks_ema30_max if abs(idx - ema_idx) <= tolerance]
+            if close_ema10 and close_ema30 and min(abs(e10 - e30) for e10 in close_ema10 for e30 in close_ema30) <= tolerance:
+                    df.at[idx, 'trade_open_zone'] = 1
 
         return df
 
     def apply_triggers_strategy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Estrategia: Buy trigger solo en zonas de confluencia mínima, Sell trigger solo en zonas de confluencia máxima.
+        Estrategia: BUY si hay trade_open_zone y peaks_min, SELL si hay trade_open_zone y peaks_max.
         """
-        SIGNAL_BUY = 1
-        SIGNAL_SELL = -1
-        SIGNAL_NEUTRAL = 0
-        df['signal'] = SIGNAL_NEUTRAL
+        df['signal'] = self.SIGNAL_NEUTRAL
         for i in range(len(df)):
-            if df['trade_open_zone_min'].iloc[i] == 1:
-                df.iloc[i, df.columns.get_loc('signal')] = SIGNAL_BUY
-            elif df['trade_open_zone_max'].iloc[i] == 1:
-                df.iloc[i, df.columns.get_loc('signal')] = SIGNAL_SELL
-            # Si no, queda neutral
+            if df['trade_open_zone'].iloc[i] == 1:
+                if df['peaks_min'].iloc[i] == 1:
+                    df.iloc[i, df.columns.get_loc('signal')] = self.SIGNAL_BUY
+                elif df['peaks_max'].iloc[i] == 1:
+                    df.iloc[i, df.columns.get_loc('signal')] = self.SIGNAL_SELL
         return df
 
     def triggers_trades_open(self, df: pd.DataFrame):
@@ -177,9 +230,9 @@ class RobotPrice:
         Evalúa las señales generadas por los triggers y ejecuta operaciones si corresponde, excluyendo la última vela (en formación).
         """
         try:
-            recent_rows = df.iloc[-7:-4]  # Excluye las últimas 4 velas
-            buy_signals = recent_rows[recent_rows['signal'] == 1]
-            sell_signals = recent_rows[recent_rows['signal'] == -1]
+            recent_rows = df.iloc[-12:-8]  
+            buy_signals = recent_rows[recent_rows['signal'] == self.SIGNAL_BUY]
+            sell_signals = recent_rows[recent_rows['signal'] == self.SIGNAL_SELL]
             has_buy_signal = not buy_signals.empty
             has_sell_signal = not sell_signals.empty
             # Definir variables para logs
@@ -586,28 +639,3 @@ class RobotPrice:
         # Si tienes acceso a la tabla de ofertas, puedes obtener el precio actual de ahí
         # Si no hay datos, retorna None
         return None
-
-    def calculate_hourly_regressions(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Para cada hora en el DataFrame, calcula una regresión lineal de los precios dentro de esa hora
-        y guarda el valor ajustado en una nueva columna 'hourly_regression'.
-        Acepta fechas en cualquier formato reconocible por pandas.
-        """
-        import numpy as np
-        import pandas as pd
-
-        df['hourly_regression'] = np.nan
-        # Asegurarse de que la columna 'date' es datetime, usando inferencia automática
-        if not np.issubdtype(df['date'].dtype, np.datetime64):
-            df['date'] = pd.to_datetime(df['date'], errors='coerce', infer_datetime_format=True)
-        # Agrupar por año, mes, día y hora
-        df['hour_group'] = df['date'].dt.floor('H')
-        for hour, group in df.groupby('hour_group'):
-            if len(group) > 1:
-                x = group.index.values
-                y = group['bidclose'].values
-                m, b = np.polyfit(x, y, 1)
-                y_pred = m * x + b
-                df.loc[group.index, 'hourly_regression'] = y_pred
-        df.drop(columns=['hour_group'], inplace=True)
-        return df

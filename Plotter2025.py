@@ -33,6 +33,7 @@ class ForexPlotter:
         self.data = None
         self.last_update = 0
         self.update_interval = 20  # seconds
+        # Eliminada la variable self.hourly_regression_segments
         
     def setup_plot(self) -> None:
         """Setup the basic plot configuration"""
@@ -48,36 +49,29 @@ class ForexPlotter:
         """Initialize all plot lines"""
         # Price line
         self.price_line, = self.ax.plot([], [], linestyle='dotted', color='#00ff00', label='Price')
-
         # Peak markers
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
         self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='orange', label='Max Peaks')
-       
         # Trigger markers
-        self.trigger_buy, = self.ax.plot([], [], 'D', color='purple', label='Buy Trigger', zorder=4)
-        self.trigger_sell, = self.ax.plot([], [], 'd', color='crimson', label='Sell Trigger', zorder=4)
-
-        # Línea EMA 10
+        self.trigger_buy, = self.ax.plot([], [], 'D', color='white', label='Buy Trigger', zorder=30)
+        self.trigger_sell, = self.ax.plot([], [], 'd', color='blue', label='Sell Trigger', zorder=30)
+        # EMA 10 y EMA 30 y sus picos
         self.ema_10_line, = self.ax.plot([], [], '-', color='yellow', linewidth=2, label='EMA 10', zorder=2)
-
-        # Nueva línea para peaks_min_ema_10 (mínimos EMA 10)
         self.peaks_min_ema_10_line, = self.ax.plot([], [], 'x', color='cyan', label='Min EMA 10')
-        # Nueva línea para peaks_max_ema_10 (máximos EMA 10)
         self.peaks_max_ema_10_line, = self.ax.plot([], [], 'x', color='magenta', label='Max EMA 10')
-
-        # Línea para zonas de alto volumen (eliminada)
-        # self.high_volume_zone_line, = self.ax.plot([], [], '|', color='yellow', markersize=15, label='High Volume Zone')
-        # Confluencia de picos: zona de apertura de trade
+        self.ema_30_line, = self.ax.plot([], [], '-', color='orange', linewidth=2, label='EMA 30', zorder=2)
+        self.peaks_min_ema_30_line, = self.ax.plot([], [], 'x', color='lime', label='Min EMA 30')
+        self.peaks_max_ema_30_line, = self.ax.plot([], [], 'x', color='red', label='Max EMA 30')
+        # Trade open zones
         self.trade_open_zone_min_line, = self.ax.plot([], [], '*', color='lime', markersize=18, label='Trade Open Buy (Confluence)', zorder=1)
         self.trade_open_zone_max_line, = self.ax.plot([], [], '*', color='red', markersize=18, label='Trade Open Sell (Confluence)', zorder=1)
-        
-        # Línea de regresión por hora
-        self.hourly_regression_line, = self.ax.plot([], [], '-', color='white', linewidth=2, label='Regresión Lineal por Hora', zorder=2)
-
-        # Add legend with white text
-        legend = self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
-        for text in legend.get_texts():
-            text.set_color('white')
+        # Leyenda
+        handles, labels = self.ax.get_legend_handles_labels()
+        unique = dict(zip(labels, handles))
+        # Remove 'Última Min Trend' and 'Última Max Trend' from legend if present
+        unique.pop('Última Min Trend', None)
+        unique.pop('Última Max Trend', None)
+        self.ax.legend(unique.values(), unique.keys(), facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
         
     def load_data(self) -> pd.DataFrame:
         """Load and process the forex data"""
@@ -135,94 +129,56 @@ class ForexPlotter:
                 print("No data in the current view range")
                 return []
 
-            # Update price line
+            # Price line
             self.price_line.set_data(df_view.index, df_view['bidclose'])
-
             # EMA 10
-            if 'ema_10' in df_view.columns:
-                self.ema_10_line.set_data(df_view.index, df_view['ema_10'])
-            else:
-                self.ema_10_line.set_data([], [])
-
-            # Update peaks
-            self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1.0].index, 
-                                       df_view[df_view['peaks_min'] == 1.0]['bidclose'])
-            self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1.0].index, 
-                                       df_view[df_view['peaks_max'] == 1.0]['bidclose'])
-            
-            # Update trigger markers para la nueva señal
+            self.ema_10_line.set_data(df_view.index, df_view['ema_10'])
+            # EMA 30
+            self.ema_30_line.set_data(df_view.index, df_view['ema_30'])
+            # Peaks
+            self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1.0].index, df_view[df_view['peaks_min'] == 1.0]['bidclose'])
+            self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1.0].index, df_view[df_view['peaks_max'] == 1.0]['bidclose'])
+            # Triggers
             self.trigger_buy.set_data(df_view[df_view['signal'] == 1.0].index, df_view[df_view['signal'] == 1.0]['bidclose'])
             self.trigger_sell.set_data(df_view[df_view['signal'] == -1.0].index, df_view[df_view['signal'] == -1.0]['bidclose'])
-
-            # Nueva línea: peaks_min_ema_10 (mínimos EMA 10)
-            self.peaks_min_ema_10_line.set_data(
-                df_view[df_view['peaks_min_ema_10'] == 1].index,
-                df_view[df_view['peaks_min_ema_10'] == 1]['ema_10']
-            )
-            # Nueva línea: peaks_max_ema_10 (máximos EMA 10)
-            self.peaks_max_ema_10_line.set_data(
-                df_view[df_view['peaks_max_ema_10'] == 1].index,
-                df_view[df_view['peaks_max_ema_10'] == 1]['ema_10']
-            )
-
-            # Línea para zonas de alto volumen (eliminada)
-            # if 'high_volume_zone' in df_view.columns:
-            #     high_vol_idx = df_view[df_view['high_volume_zone'] == 1].index
-            #     high_vol_price = df_view.loc[high_vol_idx, 'bidclose']
-            #     self.high_volume_zone_line.set_data(high_vol_idx, high_vol_price)
-            # else:
-            #     self.high_volume_zone_line.set_data([], [])
-            # Confluencia de picos: zona de apertura de trade
-            if 'trade_open_zone_min' in df_view.columns:
-                min_idx = df_view[df_view['trade_open_zone_min'] == 1].index
-                min_price = df_view.loc[min_idx, 'bidclose']
-                self.trade_open_zone_min_line.set_data(min_idx, min_price)
-            else:
-                self.trade_open_zone_min_line.set_data([], [])
-            if 'trade_open_zone_max' in df_view.columns:
-                max_idx = df_view[df_view['trade_open_zone_max'] == 1].index
-                max_price = df_view.loc[max_idx, 'bidclose']
-                self.trade_open_zone_max_line.set_data(max_idx, max_price)
-            else:
-                self.trade_open_zone_max_line.set_data([], [])
-
-            # Línea de regresión por hora (segmentada)
-            if 'hourly_regression' in df_view.columns and 'date' in df_view.columns:
-                self.hourly_regression_line.set_data([], [])  # Limpiar antes de graficar
-                # Agrupar por hora
-                segments_x = []
-                segments_y = []
-                df_view = df_view.copy()
-                df_view['hour_group'] = df_view['date'].dt.floor('H')
-                for _, group in df_view.groupby('hour_group'):
-                    idx = group[~group['hourly_regression'].isna()].index
-                    vals = group.loc[idx, 'hourly_regression']
-                    if len(idx) > 1:
-                        segments_x.append(idx)
-                        segments_y.append(vals)
-                # Graficar cada segmento por separado
-                self.hourly_regression_line.set_data([], [])
-                for x, y in zip(segments_x, segments_y):
-                    self.hourly_regression_line.set_data(x, y)
-                    self.ax.plot(x, y, '-', color='white', linewidth=2, zorder=2)
-            else:
-                self.hourly_regression_line.set_data([], [])
-
-            # Adjust y-axis limits dynamically based on visible data
+            # Peaks EMA 10
+            self.peaks_min_ema_10_line.set_data(df_view[df_view['peaks_min_ema_10'] == 1].index, df_view[df_view['peaks_min_ema_10'] == 1]['ema_10'])
+            self.peaks_max_ema_10_line.set_data(df_view[df_view['peaks_max_ema_10'] == 1].index, df_view[df_view['peaks_max_ema_10'] == 1]['ema_10'])
+            # Peaks EMA 30
+            self.peaks_min_ema_30_line.set_data(df_view[df_view['peaks_min_ema_30'] == 1].index, df_view[df_view['peaks_min_ema_30'] == 1]['ema_30'])
+            self.peaks_max_ema_30_line.set_data(df_view[df_view['peaks_max_ema_30'] == 1].index, df_view[df_view['peaks_max_ema_30'] == 1]['ema_30'])
+            # Trade open zones
+            self.trade_open_zone_min_line.set_data(df_view[df_view['trade_open_zone'] == 1].index, df_view[df_view['trade_open_zone'] == 1]['bidclose'])
+            self.trade_open_zone_max_line.set_data([], [])
+            # Visualización de la zona de tolerancia
+            # Limpia bandas previas si existen
+            if hasattr(self, 'tolerance_spans'):
+                for span in self.tolerance_spans:
+                    span.remove()
+            self.tolerance_spans = []
+            tolerance = ConfigurationOperation.tolerance_peaks  # Usar el valor centralizado
+            for idx in df_view[df_view['trade_open_zone'] == 1].index:
+                span = self.ax.axvspan(idx - tolerance, idx + tolerance, color='aqua', alpha=0.15, zorder=0)
+                self.tolerance_spans.append(span)
+            # Eliminar líneas y marcadores relacionados con centro_picos_max_suave, centro_picos_min_suave, tendencias y marcadores especiales
+            # (No crear ni actualizar self.centro_picos_max_suave_line, self.centro_picos_min_suave_line, self.trend_max_up, self.trend_max_down, self.trend_max_flat, self.trend_min_up, self.trend_min_down, self.trend_min_flat, self.last_min_trend_marker, self.last_max_trend_marker)
+            # Ajuste de límites
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
-            
-            return [self.price_line, 
-                    self.peaks_min_inf, 
-                    self.peaks_max_inf, 
-                    self.trigger_buy, 
-                    self.trigger_sell,
-                    self.peaks_min_ema_10_line,
-                    self.peaks_max_ema_10_line,
-                    self.ema_10_line,
-                    # self.high_volume_zone_line,  # Eliminada
-                    self.trade_open_zone_min_line,
-                    self.trade_open_zone_max_line,
-                    self.hourly_regression_line]
+            return [
+                self.price_line, 
+                self.peaks_min_inf, 
+                self.peaks_max_inf, 
+                self.trigger_buy, 
+                self.trigger_sell,
+                self.peaks_min_ema_10_line,
+                self.peaks_max_ema_10_line,
+                self.ema_10_line,
+                self.peaks_min_ema_30_line,
+                self.peaks_max_ema_30_line,
+                self.ema_30_line,
+                self.trade_open_zone_min_line,
+                self.trade_open_zone_max_line
+            ]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
             return []
