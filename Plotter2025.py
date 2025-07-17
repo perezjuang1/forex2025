@@ -148,8 +148,14 @@ class ForexPlotter:
             self.peaks_min_ema_30_line.set_data(df_view[df_view['peaks_min_ema_30'] == 1].index, df_view[df_view['peaks_min_ema_30'] == 1]['ema_30'])
             self.peaks_max_ema_30_line.set_data(df_view[df_view['peaks_max_ema_30'] == 1].index, df_view[df_view['peaks_max_ema_30'] == 1]['ema_30'])
             # Trade open zones
-            self.trade_open_zone_min_line.set_data(df_view[df_view['trade_open_zone'] == 1].index, df_view[df_view['trade_open_zone'] == 1]['bidclose'])
-            self.trade_open_zone_max_line.set_data([], [])
+            if 'trade_open_zone_buy' in df_view.columns:
+                self.trade_open_zone_min_line.set_data(df_view[df_view['trade_open_zone_buy'] == 1].index, df_view[df_view['trade_open_zone_buy'] == 1]['bidclose'])
+            else:
+                self.trade_open_zone_min_line.set_data([], [])
+            if 'trade_open_zone_sell' in df_view.columns:
+                self.trade_open_zone_max_line.set_data(df_view[df_view['trade_open_zone_sell'] == 1].index, df_view[df_view['trade_open_zone_sell'] == 1]['bidclose'])
+            else:
+                self.trade_open_zone_max_line.set_data([], [])
             # Visualización de la zona de tolerancia
             # Limpia bandas previas si existen
             if hasattr(self, 'tolerance_spans'):
@@ -157,9 +163,16 @@ class ForexPlotter:
                     span.remove()
             self.tolerance_spans = []
             tolerance = ConfigurationOperation.tolerance_peaks  # Usar el valor centralizado
-            for idx in df_view[df_view['trade_open_zone'] == 1].index:
-                span = self.ax.axvspan(idx - tolerance, idx + tolerance, color='aqua', alpha=0.15, zorder=0)
-                self.tolerance_spans.append(span)
+            # Zonas de compra (lime)
+            if 'trade_open_zone_buy' in df_view.columns:
+                for idx in df_view[df_view['trade_open_zone_buy'] == 1].index:
+                    span = self.ax.axvspan(idx - tolerance, idx + tolerance, color='lime', alpha=0.15, zorder=0)
+                    self.tolerance_spans.append(span)
+            # Zonas de venta (red)
+            if 'trade_open_zone_sell' in df_view.columns:
+                for idx in df_view[df_view['trade_open_zone_sell'] == 1].index:
+                    span = self.ax.axvspan(idx - tolerance, idx + tolerance, color='red', alpha=0.15, zorder=0)
+                    self.tolerance_spans.append(span)
             # Eliminar líneas y marcadores relacionados con centro_picos_max_suave, centro_picos_min_suave, tendencias y marcadores especiales
             # (No crear ni actualizar self.centro_picos_max_suave_line, self.centro_picos_min_suave_line, self.trend_max_up, self.trend_max_down, self.trend_max_flat, self.trend_min_up, self.trend_min_down, self.trend_min_flat, self.last_min_trend_marker, self.last_max_trend_marker)
             # Ajuste de límites
