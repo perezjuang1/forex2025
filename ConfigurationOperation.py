@@ -8,7 +8,7 @@ class ConfigurationOperation:
     open_zone_col = 'trade_open_zone'
     peaks_min_col = 'peaks_min'
     peaks_max_col = 'peaks_max'
-    recent_range = (-12, -8)  # Para triggers_trades_open
+    recent_range = (-12, -10)  # Para triggers_trades_open
     recent_close_range = (-7, -4)  # Para triggers_trades_close
    
     userid = "U10D2470448"

@@ -68,9 +68,6 @@ class ForexPlotter:
         # Leyenda
         handles, labels = self.ax.get_legend_handles_labels()
         unique = dict(zip(labels, handles))
-        # Remove 'Última Min Trend' and 'Última Max Trend' from legend if present
-        unique.pop('Última Min Trend', None)
-        unique.pop('Última Max Trend', None)
         self.ax.legend(unique.values(), unique.keys(), facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
         
     def load_data(self) -> pd.DataFrame:

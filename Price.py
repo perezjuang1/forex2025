@@ -192,17 +192,21 @@ class RobotPrice:
         peaks_ema10_max = df.index[df['peaks_max_ema_10'] == 1].tolist()
         peaks_ema30_min = df.index[df['peaks_min_ema_30'] == 1].tolist()
         peaks_ema30_max = df.index[df['peaks_max_ema_30'] == 1].tolist()
-        for idx in df.index[df['ema_cross_up'] == 1]:
-            min_price = [p for p in peaks_min_idx if abs(idx - p) <= tolerance]
-            min_ema10 = [p for p in peaks_ema10_min if abs(idx - p) <= tolerance]
-            min_ema30 = [p for p in peaks_ema30_min if abs(idx - p) <= tolerance]
-            if min_price and min_ema10 and min_ema30:
+        # Para compras: ciclo sobre picos mínimos de precio
+        for idx in peaks_min_idx:
+            # Buscar cruce alcista cerca
+            cross_up = any(abs(idx - c) <= tolerance for c in df.index[df['ema_cross_up'] == 1])
+            min_ema10 = any(abs(idx - p) <= tolerance for p in peaks_ema10_min)
+            min_ema30 = any(abs(idx - p) <= tolerance for p in peaks_ema30_min)
+            if cross_up and min_ema10 and min_ema30:
                 df.at[idx, 'trade_open_zone_buy'] = 1
-        for idx in df.index[df['ema_cross_down'] == 1]:
-            max_price = [p for p in peaks_max_idx if abs(idx - p) <= tolerance]
-            max_ema10 = [p for p in peaks_ema10_max if abs(idx - p) <= tolerance]
-            max_ema30 = [p for p in peaks_ema30_max if abs(idx - p) <= tolerance]
-            if max_price and max_ema10 and max_ema30:
+        # Para ventas: ciclo sobre picos máximos de precio
+        for idx in peaks_max_idx:
+            # Buscar cruce bajista cerca
+            cross_down = any(abs(idx - c) <= tolerance for c in df.index[df['ema_cross_down'] == 1])
+            max_ema10 = any(abs(idx - p) <= tolerance for p in peaks_ema10_max)
+            max_ema30 = any(abs(idx - p) <= tolerance for p in peaks_ema30_max)
+            if cross_down and max_ema10 and max_ema30:
                 df.at[idx, 'trade_open_zone_sell'] = 1
 
     def apply_triggers_strategy(self, df: pd.DataFrame, config=None) -> pd.DataFrame:
