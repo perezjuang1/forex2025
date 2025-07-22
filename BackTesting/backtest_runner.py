@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 from backports.zoneinfo import ZoneInfo
 from ConfigurationOperation import ConfigurationOperation
-from Price import RobotPrice
+from Price import Price
 
 class BacktestRunner:
     """
@@ -17,7 +17,7 @@ class BacktestRunner:
         self.timeframe = timeframe
         self.days = days
         self.price_file = price_file or f"{instrument.replace('/', '_')}_{timeframe}.csv"
-        self.robot = RobotPrice(days, instrument, timeframe)
+        self.robot = Price(days, instrument, timeframe)
 
     def load_data(self):
         """

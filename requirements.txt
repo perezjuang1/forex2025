@@ -1,6 +1,5 @@
 cycler==0.11.0
 fonttools==4.38.0
-forexconnect==1.6.43
 kiwisolver==1.4.4
 matplotlib==3.5.3
 numpy==1.21.6

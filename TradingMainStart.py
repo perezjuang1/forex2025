@@ -1,5 +1,5 @@
 from ConnectionFxcm import RobotConnection
-from Price import RobotPrice
+from Price import Price
 import datetime as dt
 import time
 import numpy as np
@@ -16,7 +16,7 @@ class Trading:
         self.robotconnection = RobotConnection()
         self.connection = self.robotconnection.getConnection()
         self.corepy = self.robotconnection.getCorepy()
-        self._robot_price = RobotPrice(days, self.instrument, self.timeframe)
+        self._robot_price = Price(days, self.instrument, self.timeframe)
         self.days = days
 
     def __del__(self):

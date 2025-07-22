@@ -1,6 +1,7 @@
 import datetime as dt
 from datetime import datetime
 from backports.zoneinfo import ZoneInfo
+import time
 
 class ConfigurationOperation:
     # Parámetros centralizados para la estrategia
@@ -8,7 +9,7 @@ class ConfigurationOperation:
     open_zone_col = 'trade_open_zone'
     peaks_min_col = 'peaks_min'
     peaks_max_col = 'peaks_max'
-    recent_range = (-12, -10)  # Para triggers_trades_open
+    recent_range = (-24, -12)  # Excluye las últimas 12 velas
     recent_close_range = (-7, -4)  # Para triggers_trades_close
    
     userid = "U10D2470448"
@@ -18,7 +19,7 @@ class ConfigurationOperation:
     instrument_symbol = "EUR/USD"
     session = None
     pin = None
-    lots = 8
+    lots = 5
     stop = 10
     limit = 30
     account = None

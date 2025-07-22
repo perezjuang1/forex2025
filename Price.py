@@ -14,7 +14,7 @@ import logging
 import os
 from ConfigurationOperation import ConfigurationOperation
 
-class RobotPrice:
+class Price:
     """
     Clase principal para manejo de precios, indicadores y operaciones de trading.
     """
@@ -32,7 +32,7 @@ class RobotPrice:
 
     def __init__(self, days: int, instrument: str, timeframe: str):
         """
-        Inicializa el objeto RobotPrice.
+        Inicializa el objeto Price.
         """
         self.instrument = instrument
         self.timeframe = timeframe
@@ -58,7 +58,7 @@ class RobotPrice:
         """
         if not os.path.exists('logs'):
             os.makedirs('logs')
-        self.logger = logging.getLogger(f'RobotPrice_{self.instrument}')
+        self.logger = logging.getLogger(f'Price_{self.instrument}')
         self.logger.setLevel(logging.INFO)
         log_file = f'logs/robot_price_{self.instrument.replace("/", "_")}_{datetime.now().strftime("%Y%m%d")}.log'
         if not self.logger.handlers:
