@@ -52,23 +52,36 @@ class ForexPlotter:
         # Peak markers
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
         self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='orange', label='Max Peaks')
+        # Línea de mediana móvil segmentada por tendencia
+        self.median_segments = []  # Para almacenar los segmentos de la mediana
+        # Línea suavizada de picos máximos
+        self.max_peaks_smooth_proj_line, = self.ax.plot([], [], color='magenta', linewidth=2, linestyle='--', label='Max Peaks Smooth+Proj', zorder=3)
+        # Línea suavizada de picos mínimos
+        self.min_peaks_smooth_proj_line, = self.ax.plot([], [], color='cyan', linewidth=2, linestyle='--', label='Min Peaks Smooth+Proj', zorder=3)
         # Trigger markers
         self.trigger_buy, = self.ax.plot([], [], 'D', color='white', label='Buy Trigger', zorder=30)
         self.trigger_sell, = self.ax.plot([], [], 'd', color='blue', label='Sell Trigger', zorder=30)
-        # EMA 10 y EMA 30 y sus picos
-        self.ema_10_line, = self.ax.plot([], [], '-', color='yellow', linewidth=2, label='EMA 10', zorder=2)
-        self.peaks_min_ema_10_line, = self.ax.plot([], [], 'x', color='cyan', label='Min EMA 10')
-        self.peaks_max_ema_10_line, = self.ax.plot([], [], 'x', color='magenta', label='Max EMA 10')
-        self.ema_30_line, = self.ax.plot([], [], '-', color='orange', linewidth=2, label='EMA 30', zorder=2)
-        self.peaks_min_ema_30_line, = self.ax.plot([], [], 'x', color='lime', label='Min EMA 30')
-        self.peaks_max_ema_30_line, = self.ax.plot([], [], 'x', color='red', label='Max EMA 30')
         # Trade open zones
         self.trade_open_zone_min_line, = self.ax.plot([], [], '*', color='lime', markersize=18, label='Trade Open Buy (Confluence)', zorder=1)
         self.trade_open_zone_max_line, = self.ax.plot([], [], '*', color='red', markersize=18, label='Trade Open Sell (Confluence)', zorder=1)
+        # ...existing code...
         # Leyenda
+        from matplotlib.patches import Patch
         handles, labels = self.ax.get_legend_handles_labels()
         unique = dict(zip(labels, handles))
-        self.ax.legend(unique.values(), unique.keys(), facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
+        # Añadir manualmente la zona de tolerancia (lime/red bands)
+        tolerance_patch_buy = Patch(facecolor='lime', edgecolor='none', alpha=0.15, label='Zona de Tolerancia Buy')
+        tolerance_patch_sell = Patch(facecolor='red', edgecolor='none', alpha=0.15, label='Zona de Tolerancia Sell')
+        # Solo agregar si no existen ya
+        legend_handles = list(unique.values())
+        legend_labels = list(unique.keys())
+        if 'Zona de Tolerancia Buy' not in legend_labels:
+            legend_handles.append(tolerance_patch_buy)
+            legend_labels.append('Zona de Tolerancia Buy')
+        if 'Zona de Tolerancia Sell' not in legend_labels:
+            legend_handles.append(tolerance_patch_sell)
+            legend_labels.append('Zona de Tolerancia Sell')
+        self.ax.legend(legend_handles, legend_labels, facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
         
     def load_data(self) -> pd.DataFrame:
         """Load and process the forex data"""
@@ -128,22 +141,51 @@ class ForexPlotter:
 
             # Price line
             self.price_line.set_data(df_view.index, df_view['bidclose'])
-            # EMA 10
-            self.ema_10_line.set_data(df_view.index, df_view['ema_10'])
-            # EMA 30
-            self.ema_30_line.set_data(df_view.index, df_view['ema_30'])
-            # Peaks
-            self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1.0].index, df_view[df_view['peaks_min'] == 1.0]['bidclose'])
-            self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1.0].index, df_view[df_view['peaks_max'] == 1.0]['bidclose'])
-            # Triggers
+            # Línea suavizada de picos máximos
+            if 'max_peaks_smooth_proj' in df_view.columns:
+                self.max_peaks_smooth_proj_line.set_data(df_view.index, df_view['max_peaks_smooth_proj'])
+            else:
+                self.max_peaks_smooth_proj_line.set_data([], [])
+            # Línea suavizada de picos mínimos
+            if 'min_peaks_smooth_proj' in df_view.columns:
+                self.min_peaks_smooth_proj_line.set_data(df_view.index, df_view['min_peaks_smooth_proj'])
+            else:
+                self.min_peaks_smooth_proj_line.set_data([], [])
+            # ...
+            # Línea de mediana móvil segmentada por tendencia
+            # Elimina segmentos anteriores
+            for seg in getattr(self, 'median_segments', []):
+                seg.remove()
+            self.median_segments = []
+            if 'median_bidclose' in df_view.columns and 'median_trend' in df_view.columns:
+                x = df_view.index.values
+                y = df_view['median_bidclose'].values
+                trend = df_view['median_trend'].values
+                # Segmenta por tendencia
+                current_color = None
+                seg_x = []
+                seg_y = []
+                for i in range(1, len(x)):
+                    color = 'lime' if trend[i] == 'going up' else ('red' if trend[i] == 'going down' else None)
+                    if color != current_color and seg_x:
+                        # Dibuja el segmento anterior
+                        if current_color:
+                            line, = self.ax.plot(seg_x, seg_y, color=current_color, linewidth=2, zorder=2)
+                            self.median_segments.append(line)
+                        seg_x = [x[i-1]]
+                        seg_y = [y[i-1]]
+                        current_color = color
+                    seg_x.append(x[i])
+                    seg_y.append(y[i])
+                # Dibuja el último segmento
+                if seg_x and current_color:
+                    line, = self.ax.plot(seg_x, seg_y, color=current_color, linewidth=2, zorder=2)
+                    self.median_segments.append(line)
             self.trigger_buy.set_data(df_view[df_view['signal'] == 1.0].index, df_view[df_view['signal'] == 1.0]['bidclose'])
             self.trigger_sell.set_data(df_view[df_view['signal'] == -1.0].index, df_view[df_view['signal'] == -1.0]['bidclose'])
-            # Peaks EMA 10
-            self.peaks_min_ema_10_line.set_data(df_view[df_view['peaks_min_ema_10'] == 1].index, df_view[df_view['peaks_min_ema_10'] == 1]['ema_10'])
-            self.peaks_max_ema_10_line.set_data(df_view[df_view['peaks_max_ema_10'] == 1].index, df_view[df_view['peaks_max_ema_10'] == 1]['ema_10'])
-            # Peaks EMA 30
-            self.peaks_min_ema_30_line.set_data(df_view[df_view['peaks_min_ema_30'] == 1].index, df_view[df_view['peaks_min_ema_30'] == 1]['ema_30'])
-            self.peaks_max_ema_30_line.set_data(df_view[df_view['peaks_max_ema_30'] == 1].index, df_view[df_view['peaks_max_ema_30'] == 1]['ema_30'])
+            # Peaks min/max
+            self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1].index, df_view[df_view['peaks_min'] == 1]['bidclose'])
+            self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1].index, df_view[df_view['peaks_max'] == 1]['bidclose'])
             # Trade open zones
             if 'trade_open_zone_buy' in df_view.columns:
                 self.trade_open_zone_min_line.set_data(df_view[df_view['trade_open_zone_buy'] == 1].index, df_view[df_view['trade_open_zone_buy'] == 1]['bidclose'])
@@ -170,22 +212,24 @@ class ForexPlotter:
                 for idx in df_view[df_view['trade_open_zone_sell'] == 1].index:
                     span = self.ax.axvspan(idx - tolerance, idx + tolerance, color='red', alpha=0.15, zorder=0)
                     self.tolerance_spans.append(span)
+
+            # ...existing code...
+
+            # ...existing code...
             # Eliminar líneas y marcadores relacionados con centro_picos_max_suave, centro_picos_min_suave, tendencias y marcadores especiales
             # (No crear ni actualizar self.centro_picos_max_suave_line, self.centro_picos_min_suave_line, self.trend_max_up, self.trend_max_down, self.trend_max_flat, self.trend_min_up, self.trend_min_down, self.trend_min_flat, self.last_min_trend_marker, self.last_max_trend_marker)
             # Ajuste de límites
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
+            # Devuelve también los segmentos de la mediana
             return [
-                self.price_line, 
-                self.peaks_min_inf, 
-                self.peaks_max_inf, 
-                self.trigger_buy, 
+                self.price_line,
+                *self.median_segments,
+                self.max_peaks_smooth_proj_line,
+                self.min_peaks_smooth_proj_line,
+                self.peaks_min_inf,
+                self.peaks_max_inf,
+                self.trigger_buy,
                 self.trigger_sell,
-                self.peaks_min_ema_10_line,
-                self.peaks_max_ema_10_line,
-                self.ema_10_line,
-                self.peaks_min_ema_30_line,
-                self.peaks_max_ema_30_line,
-                self.ema_30_line,
                 self.trade_open_zone_min_line,
                 self.trade_open_zone_max_line
             ]

@@ -1,20 +1,91 @@
 import pandas as pd
-
-
+import numpy as np
+from scipy import signal
 from datetime import datetime
 from backports.zoneinfo import ZoneInfo
-
-import numpy as np
-import pandas as pd
-from scipy import signal
 import datetime as dt
-from ConnectionFxcm import RobotConnection
-import time
 import logging
 import os
+from ConnectionFxcm import RobotConnection
 from ConfigurationOperation import ConfigurationOperation
 
 class Price:
+    def add_min_peaks_smooth_projection(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Crea una columna 'min_peaks_smooth_proj' que conecta los picos mínimos con una línea recta y proyecta linealmente al final si es necesario.
+        """
+        import numpy as np
+        from scipy.interpolate import interp1d
+        peaks_idx = np.array(df.index[df['peaks_min'] == 1])
+        if len(peaks_idx) < 2:
+            df['min_peaks_smooth_proj'] = np.nan
+            return df
+        y_peaks = np.array(df.loc[peaks_idx, 'bidclose'])
+        x_full = np.array(df.index)
+        f = interp1d(peaks_idx, y_peaks, kind='linear', fill_value='extrapolate')
+        y_smooth = f(x_full)
+        last_peak = peaks_idx[-1]
+        if last_peak < x_full[-1]:
+            if len(peaks_idx) >= 2:
+                x1, x2 = peaks_idx[-2], peaks_idx[-1]
+                y1, y2 = y_peaks[-2], y_peaks[-1]
+                slope = (y2 - y1) / (x2 - x1) if (x2 - x1) != 0 else 0
+                for i in range(last_peak + 1, x_full[-1] + 1):
+                    y_smooth[i] = y2 + slope * (i - x2)
+        df['min_peaks_smooth_proj'] = y_smooth
+        return df
+    def add_max_peaks_smooth_projection(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Crea una columna 'max_peaks_smooth_proj' que conecta los picos máximos con una línea suavizada y proyecta linealmente al final si es necesario.
+        """
+        import pandas as pd
+        import numpy as np
+        from scipy.interpolate import interp1d, UnivariateSpline
+        # Encuentra los índices y valores de los picos máximos
+        # Compatibilidad: Int64Index puede no tener .to_numpy() en algunas versiones de pandas
+        peaks_idx = np.array(df.index[df['peaks_max'] == 1])
+        if len(peaks_idx) < 2:
+            # No hay suficientes picos para trazar una línea
+            df['max_peaks_smooth_proj'] = np.nan
+            return df
+        # Compatibilidad: Series puede no tener .to_numpy() en pandas antiguos
+        y_peaks = np.array(df.loc[peaks_idx, 'bidclose'])
+        x_full = np.array(df.index)
+        # Siempre usar interpolación lineal para que la línea solo conecte los puntos máximos
+        f = interp1d(peaks_idx, y_peaks, kind='linear', fill_value='extrapolate')
+        y_smooth = f(x_full)
+        # Proyección lineal al final si el último pico no es el último índice
+        last_peak = peaks_idx[-1]
+        if last_peak < x_full[-1]:
+            # Proyecta desde los dos últimos picos
+            if len(peaks_idx) >= 2:
+                x1, x2 = peaks_idx[-2], peaks_idx[-1]
+                y1, y2 = y_peaks[-2], y_peaks[-1]
+                slope = (y2 - y1) / (x2 - x1) if (x2 - x1) != 0 else 0
+                for i in range(last_peak + 1, x_full[-1] + 1):
+                    y_smooth[i] = y2 + slope * (i - x2)
+        df['max_peaks_smooth_proj'] = y_smooth
+        return df
+    def add_median_and_trend(self, df: pd.DataFrame, window: int = 500) -> pd.DataFrame:
+        """
+        Agrega la mediana móvil y la tendencia de la mediana al DataFrame.
+        """
+        df['median_bidclose'] = df['bidclose'].rolling(window=window, center=True, min_periods=1).median()
+        raw_trend = np.where(
+            df['median_bidclose'].diff() > 0, 'going up',
+            np.where(df['median_bidclose'].diff() < 0, 'going down', 'flat')
+        )
+        trend_filled = []
+        last_trend = None
+        for t in raw_trend:
+            if t == 'flat' and last_trend is not None:
+                trend_filled.append(last_trend)
+            else:
+                trend_filled.append(t)
+                if t != 'flat':
+                    last_trend = t
+        df['median_trend'] = trend_filled
+        return df
     """
     Clase principal para manejo de precios, indicadores y operaciones de trading.
     """
@@ -24,11 +95,7 @@ class Price:
     SIGNAL_SELL = -1
     SIGNAL_NEUTRAL = 0
 
-    # Constantes de tendencia globales para la clase
-    TREND_UP = 1         # Tendencia alcista
-    TREND_DOWN = -1      # Tendencia bajista
-    TREND_FLAT = 0       # Sin cambio
-    TREND_NA = np.nan    # No calculado
+
 
     def __init__(self, days: int, instrument: str, timeframe: str):
         """
@@ -129,26 +196,23 @@ class Price:
 
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calcula y agrega solo los indicadores necesarios al DataFrame (solo picos y confluencias).
+        Calcula y agrega los indicadores necesarios al DataFrame (picos min/max, mediana móvil, línea suavizada de picos máximos).
         """
-        df = self.calculate_peaks(df) 
+        df = self.add_median_and_trend(df)
+        df = self.calculate_peaks(df)
+        df = self.add_max_peaks_smooth_projection(df)
+        df = self.add_min_peaks_smooth_projection(df)
         df = self.apply_triggers_strategy(df)
         self.triggers_trades_close(df)
         self.triggers_trades_open(df)
         return df
 
-
-
-
-    def calculate_peaks(self, df: pd.DataFrame, order: int = 100, tolerance: int = None) -> pd.DataFrame:
+    def calculate_peaks(self, df: pd.DataFrame, order: int = 50, tolerance: int = None) -> pd.DataFrame:
         if tolerance is None:
             tolerance = ConfigurationOperation.tolerance_peaks
         df['value1'] = 1
         self._add_price_peaks(df, order)
-        self._add_ema_peaks(df, order)
-        self._add_ema_crosses(df)
         self._mark_trade_open_zone(df, order, tolerance)
-        df.drop(['ema10_above_ema30', 'ema10_above_ema30_shift'], axis=1, inplace=True)
         return df
 
     def _add_price_peaks(self, df, order):
@@ -159,54 +223,22 @@ class Price:
         df.loc[peaks_min_idx, 'peaks_min'] = 1
         df.loc[peaks_max_idx, 'peaks_max'] = 1
 
-    def _add_ema_peaks(self, df, order):
-        df['ema_10'] = df['bidclose'].ewm(span=10, adjust=False).mean()
-        df['ema_30'] = df['bidclose'].ewm(span=30, adjust=False).mean()
-        peaks_ema10_min = signal.argrelextrema(df['ema_10'].values, np.less, order=order)[0]
-        peaks_ema10_max = signal.argrelextrema(df['ema_10'].values, np.greater, order=order)[0]
-        peaks_ema30_min = signal.argrelextrema(df['ema_30'].values, np.less, order=order)[0]
-        peaks_ema30_max = signal.argrelextrema(df['ema_30'].values, np.greater, order=order)[0]
-        df['peaks_min_ema_10'] = 0
-        df['peaks_max_ema_10'] = 0
-        df['peaks_min_ema_30'] = 0
-        df['peaks_max_ema_30'] = 0
-        df.loc[peaks_ema10_min, 'peaks_min_ema_10'] = 1
-        df.loc[peaks_ema10_max, 'peaks_max_ema_10'] = 1
-        df.loc[peaks_ema30_min, 'peaks_min_ema_30'] = 1
-        df.loc[peaks_ema30_max, 'peaks_max_ema_30'] = 1
+    # EMA calculations and peaks removed
 
-    def _add_ema_crosses(self, df):
-        df['ema_cross_up'] = 0
-        df['ema_cross_down'] = 0
-        df['ema10_above_ema30'] = df['ema_10'] > df['ema_30']
-        df['ema10_above_ema30_shift'] = df['ema10_above_ema30'].shift(1).fillna(False)
-        df.loc[(df['ema10_above_ema30'] == True) & (df['ema10_above_ema30_shift'] == False), 'ema_cross_up'] = 1
-        df.loc[(df['ema10_above_ema30'] == False) & (df['ema10_above_ema30_shift'] == True), 'ema_cross_down'] = 1
+    # EMA cross calculations removed
 
     def _mark_trade_open_zone(self, df, order, tolerance):
         df['trade_open_zone_buy'] = 0
         df['trade_open_zone_sell'] = 0
         peaks_min_idx = df.index[df['peaks_min'] == 1].tolist()
         peaks_max_idx = df.index[df['peaks_max'] == 1].tolist()
-        peaks_ema10_min = df.index[df['peaks_min_ema_10'] == 1].tolist()
-        peaks_ema10_max = df.index[df['peaks_max_ema_10'] == 1].tolist()
-        peaks_ema30_min = df.index[df['peaks_min_ema_30'] == 1].tolist()
-        peaks_ema30_max = df.index[df['peaks_max_ema_30'] == 1].tolist()
-        # Para compras: ciclo sobre picos mínimos de precio
+        # Para compras: ciclo sobre picos mínimos de precio SOLO si trend es 'going up'
         for idx in peaks_min_idx:
-            # Buscar cruce alcista cerca
-            cross_up = any(abs(idx - c) <= tolerance for c in df.index[df['ema_cross_up'] == 1])
-            min_ema10 = any(abs(idx - p) <= tolerance for p in peaks_ema10_min)
-            min_ema30 = any(abs(idx - p) <= tolerance for p in peaks_ema30_min)
-            if cross_up and min_ema10 and min_ema30:
+            if 'median_trend' in df.columns and df.at[idx, 'median_trend'] == 'going up':
                 df.at[idx, 'trade_open_zone_buy'] = 1
-        # Para ventas: ciclo sobre picos máximos de precio
+        # Para ventas: ciclo sobre picos máximos de precio SOLO si trend es 'going down'
         for idx in peaks_max_idx:
-            # Buscar cruce bajista cerca
-            cross_down = any(abs(idx - c) <= tolerance for c in df.index[df['ema_cross_down'] == 1])
-            max_ema10 = any(abs(idx - p) <= tolerance for p in peaks_ema10_max)
-            max_ema30 = any(abs(idx - p) <= tolerance for p in peaks_ema30_max)
-            if cross_down and max_ema10 and max_ema30:
+            if 'median_trend' in df.columns and df.at[idx, 'median_trend'] == 'going down':
                 df.at[idx, 'trade_open_zone_sell'] = 1
 
     def apply_triggers_strategy(self, df: pd.DataFrame, config=None) -> pd.DataFrame:
