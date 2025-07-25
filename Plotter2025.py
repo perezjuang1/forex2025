@@ -1,14 +1,18 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import tkinter as tk
+from tkinter import ttk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from typing import List, Tuple, Optional
-
 from dataclasses import dataclass
 import warnings
 import os
 from datetime import datetime
 import numpy as np
-import multiprocessing
+import glob
+import threading
+import time
 from ConfigurationOperation import ConfigurationOperation
 
 # Ignore specific matplotlib warnings
@@ -20,109 +24,441 @@ class PlotConfig:
     instrument: str
     timeframe: str
 
-class ForexPlotter:
-    """Class to handle forex data plotting with animation"""
+class ForexPlotterGUI:
+    """Single window plotter with CSV file selector"""
     
-    def __init__(self, config: PlotConfig):
-        """Initialize the plotter with configuration"""
-        self.config = config
-        self.fig, self.ax = plt.subplots(figsize=(15, 8))
-        self.fig.canvas.manager.set_window_title(f"{self.config.instrument} - Forex Plotter")
+    def __init__(self):
+        """Initialize the GUI plotter"""
+        self.root = tk.Tk()
+        self.root.title("Forex Data Plotter")
+        self.root.geometry("1400x800")
         
-        # Minimize the window on startup
-        try:
-            # Try to minimize the window using the backend-specific method
-            if hasattr(self.fig.canvas.manager, 'window'):
-                # For TkAgg backend
-                self.fig.canvas.manager.window.state('iconic')
-            elif hasattr(self.fig.canvas.manager, 'window') and hasattr(self.fig.canvas.manager.window, 'iconify'):
-                # For Qt backend
-                self.fig.canvas.manager.window.iconify()
-            else:
-                # Fallback: try to set window state to minimized
-                self.fig.canvas.manager.set_window_title(f"{self.config.instrument} - Forex Plotter (Minimized)")
-        except Exception as e:
-            print(f"Could not minimize window for {self.config.instrument}: {e}")
+        # Get available CSV files
+        self.csv_files = self.get_available_csv_files()
         
+        # Current data
+        self.current_data = None
+        self.current_file = None
+        
+        # Auto-update settings
+        self.auto_update_enabled = True
+        self.update_interval = 120  # 2 minutes in seconds
+        self.update_thread = None
+        self.stop_update = False
+        self.auto_scroll_enabled = True  # Auto-scroll to new data
+        
+        # Setup GUI
+        self.setup_gui()
+        
+        # Start auto-update thread
+        self.start_auto_update()
+        
+    def get_available_csv_files(self):
+        """Get all available CSV files in the current directory"""
+        csv_files = glob.glob("*.csv")
+        return sorted(csv_files)
+    
+    def setup_gui(self):
+        """Setup the GUI layout"""
+        # Create main frame
+        main_frame = ttk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Left panel for file selection
+        left_panel = ttk.Frame(main_frame, width=300)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        
+        # File selection label
+        ttk.Label(left_panel, text="Available CSV Files:", font=('Arial', 12, 'bold')).pack(pady=(0, 5))
+        
+        # Listbox for file selection
+        self.listbox = tk.Listbox(left_panel, width=40, height=20, font=('Arial', 10))
+        self.listbox.pack(fill=tk.BOTH, expand=True)
+        
+        # Scrollbar for listbox
+        scrollbar = ttk.Scrollbar(left_panel, orient=tk.VERTICAL, command=self.listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.listbox.config(yscrollcommand=scrollbar.set)
+        
+        # Populate listbox
+        for file in self.csv_files:
+            self.listbox.insert(tk.END, file)
+        
+        # Bind selection event
+        self.listbox.bind('<<ListboxSelect>>', self.on_file_select)
+        
+        # Right panel for plot
+        right_panel = ttk.Frame(main_frame)
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        # Create matplotlib figure
+        self.fig, self.ax = plt.subplots(figsize=(12, 8))
         self.setup_plot()
         self.setup_lines()
-        self.data = None
-        self.last_update = 0
-        self.update_interval = 20  # seconds
-        # Eliminada la variable self.hourly_regression_segments
         
-    def setup_plot(self) -> None:
+        # Embed plot in tkinter
+        self.canvas = FigureCanvasTkAgg(self.fig, right_panel)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Enable matplotlib navigation tools
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        self.toolbar = NavigationToolbar2Tk(self.canvas, right_panel)
+        self.toolbar.update()
+        
+        # Status bar
+        self.status_var = tk.StringVar()
+        self.status_var.set("Select a CSV file to start plotting")
+        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN)
+        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Auto-update controls
+        update_frame = ttk.Frame(left_panel)
+        update_frame.pack(pady=(10, 0), fill=tk.X)
+        
+        # Auto-update checkbox
+        self.auto_update_var = tk.BooleanVar(value=True)
+        self.auto_update_checkbox = ttk.Checkbutton(
+            update_frame, 
+            text="Auto-update every 2 minutes", 
+            variable=self.auto_update_var,
+            command=self.toggle_auto_update
+        )
+        self.auto_update_checkbox.pack(side=tk.LEFT)
+        
+        # Manual update button
+        self.update_button = ttk.Button(
+            update_frame, 
+            text="Update Now", 
+            command=self.manual_update
+        )
+        self.update_button.pack(side=tk.RIGHT)
+        
+        # Full view button
+        self.full_view_button = ttk.Button(
+            update_frame, 
+            text="Full View", 
+            command=self.force_full_view
+        )
+        self.full_view_button.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # Auto-scroll controls
+        scroll_frame = ttk.Frame(left_panel)
+        scroll_frame.pack(pady=(5, 0), fill=tk.X)
+        
+        # Auto-scroll checkbox
+        self.auto_scroll_var = tk.BooleanVar(value=True)
+        self.auto_scroll_checkbox = ttk.Checkbutton(
+            scroll_frame, 
+            text="Auto-scroll to new data", 
+            variable=self.auto_scroll_var,
+            command=self.toggle_auto_scroll
+        )
+        self.auto_scroll_checkbox.pack(side=tk.LEFT)
+        
+        # Instructions
+        instructions = ttk.Label(left_panel, text="Instructions:\n1. Select a CSV file from the list\n2. The plot will update automatically\n3. Use mouse to zoom and pan\n4. Auto-update every 2 minutes", 
+                               font=('Arial', 9), justify=tk.LEFT)
+        instructions.pack(pady=(10, 0))
+        
+    def setup_plot(self):
         """Setup the basic plot configuration"""
         plt.style.use('dark_background')
-        self.ax.set_xlabel('Date', color='white')
-        self.ax.set_ylabel(f'Price Move {self.config.instrument}', color='white')
+        self.ax.set_xlabel('Time Index', color='white')
+        self.ax.set_ylabel('Price', color='white')
         self.ax.grid(True, alpha=0.3, color='gray')
         self.ax.tick_params(colors='white')
         self.fig.patch.set_facecolor('#1a1a1a')
         self.ax.set_facecolor('#1a1a1a')
         
-    def setup_lines(self) -> None:
+    def setup_lines(self):
         """Initialize all plot lines"""
         # Price line
-        self.price_line, = self.ax.plot([], [], linestyle='dotted', color='#00ff00', label='Price')
+        self.price_line, = self.ax.plot([], [], linestyle='-', color='#00ff00', label='Price', linewidth=1)
+        
         # Peak markers
-        self.peaks_min_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='#00ccff', label='Min Peaks')
-        self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='orange', label='Max Peaks')
-        # Línea de mediana móvil segmentada por tendencia
-        self.median_segments = []  # Para almacenar los segmentos de la mediana
+        self.peaks_min_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#00ccff', 
+                                          label='Min Peaks', markersize=6)
+        self.peaks_max_inf, = self.ax.plot([], [], linestyle='', marker='o', color='orange', 
+                                          label='Max Peaks', markersize=6)
+        
+        # Median line
+        self.median_line, = self.ax.plot([], [], linestyle='-', color='yellow', 
+                                        label='Median', linewidth=2, alpha=0.7)
+        
+        # Short trend line (new indicator)
+        self.short_trend_line, = self.ax.plot([], [], linestyle='-', color='cyan', 
+                                             label='Short Trend', linewidth=1, alpha=0.8)
+        
+        # Momentum line (new indicator)
+        self.momentum_line, = self.ax.plot([], [], linestyle='-', color='magenta', 
+                                          label='Momentum', linewidth=1, alpha=0.6)
+        
         # Trigger markers
-        self.trigger_buy, = self.ax.plot([], [], 'D', color='white', label='Buy Signal', zorder=30)
-        self.trigger_sell, = self.ax.plot([], [], 'd', color='blue', label='Sell Signal', zorder=30)
-        # Trade zones (combinadas: trend following + reversal)
-        self.trade_zone_buy_line, = self.ax.plot([], [], '*', color='lime', markersize=20, label='Trade Zone Buy (Trend+Reversal)', zorder=2)
-        self.trade_zone_sell_line, = self.ax.plot([], [], '*', color='red', markersize=20, label='Trade Zone Sell (Trend+Reversal)', zorder=2)
-
+        self.trigger_buy, = self.ax.plot([], [], 'D', color='white', label='Buy Signal', 
+                                        markersize=8, zorder=30)
+        self.trigger_sell, = self.ax.plot([], [], 'd', color='blue', label='Sell Signal', 
+                                         markersize=8, zorder=30)
         
-        # Leyenda
-        from matplotlib.patches import Patch
-        handles, labels = self.ax.get_legend_handles_labels()
-        unique = dict(zip(labels, handles))
-        # Añadir manualmente la mediana móvil y zonas de tolerancia
-        median_patch_up = Patch(facecolor='lime', edgecolor='none', alpha=0.8, label='Median (Up Trend)')
-        median_patch_down = Patch(facecolor='red', edgecolor='none', alpha=0.8, label='Median (Down Trend)')
-        tolerance_patch_buy = Patch(facecolor='lime', edgecolor='none', alpha=0.15, label='Tolerance Zone Buy')
-        tolerance_patch_sell = Patch(facecolor='red', edgecolor='none', alpha=0.15, label='Tolerance Zone Sell')
+        # Trade zones
+        self.trade_zone_buy_line, = self.ax.plot([], [], '*', color='lime', 
+                                                label='Trade Zone Buy', markersize=15, zorder=2)
+        self.trade_zone_sell_line, = self.ax.plot([], [], '*', color='red', 
+                                                 label='Trade Zone Sell', markersize=15, zorder=2)
         
-        # Solo agregar si no existen ya
-        legend_handles = list(unique.values())
-        legend_labels = list(unique.keys())
+        # Legend
+        self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', 
+                      loc='upper left', fontsize=9)
         
-        if 'Median (Up Trend)' not in legend_labels:
-            legend_handles.append(median_patch_up)
-            legend_labels.append('Median (Up Trend)')
-        if 'Median (Down Trend)' not in legend_labels:
-            legend_handles.append(median_patch_down)
-            legend_labels.append('Median (Down Trend)')
-        if 'Tolerance Zone Buy' not in legend_labels:
-            legend_handles.append(tolerance_patch_buy)
-            legend_labels.append('Tolerance Zone Buy')
-        if 'Tolerance Zone Sell' not in legend_labels:
-            legend_handles.append(tolerance_patch_sell)
-            legend_labels.append('Tolerance Zone Sell')
-            
-        self.ax.legend(legend_handles, legend_labels, facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
-        
-    def toggle_window_state(self):
-        """Toggle between minimized and normal window state"""
+    def on_file_select(self, event):
+        """Handle file selection from listbox"""
+        selection = self.listbox.curselection()
+        if selection:
+            selected_file = self.csv_files[selection[0]]
+            print(f"DEBUG: File selected: {selected_file}")
+            self.load_and_plot_data(selected_file)
+            # Force full view after file change
+            self.root.after(100, self.force_full_view)
+    
+    def load_and_plot_data(self, filename):
+        """Load CSV data and update plot"""
         try:
-            if hasattr(self.fig.canvas.manager, 'window'):
-                current_state = self.fig.canvas.manager.window.state()
-                if current_state == 'iconic':
-                    # Restore window
-                    self.fig.canvas.manager.window.state('normal')
-                    print(f"Window restored for {self.config.instrument}")
-                else:
-                    # Minimize window
-                    self.fig.canvas.manager.window.state('iconic')
-                    print(f"Window minimized for {self.config.instrument}")
+            print(f"DEBUG: Attempting to load {filename}")
+            
+            # Check if file exists
+            if not os.path.exists(filename):
+                self.status_var.set(f"Error: {filename} not found")
+                print(f"DEBUG: File {filename} not found")
+                return
+            
+            print(f"DEBUG: File {filename} exists, loading data...")
+            
+            # Load data
+            df = pd.read_csv(filename)
+            
+            print(f"DEBUG: Loaded {len(df)} rows from {filename}")
+            
+            if df.empty:
+                self.status_var.set(f"Error: {filename} is empty")
+                print(f"DEBUG: File {filename} is empty")
+                return
+            
+            # Check if data has changed (for auto-updates)
+            data_changed = False
+            if self.current_data is not None:
+                # Compare row count or last timestamp
+                if len(df) != len(self.current_data):
+                    data_changed = True
+                elif len(df) > 0 and len(self.current_data) > 0:
+                    # Compare last row
+                    if df.iloc[-1].to_dict() != self.current_data.iloc[-1].to_dict():
+                        data_changed = True
+            else:
+                data_changed = True
+            
+            print(f"DEBUG: Data changed: {data_changed}")
+            
+            # Update current data
+            self.current_data = df
+            self.current_file = filename
+            
+            print(f"DEBUG: Updating plot data...")
+            
+            # Update plot
+            self.update_plot_data()
+            
+            print(f"DEBUG: Plot updated successfully")
+            
+            # Update status
+            if data_changed:
+                self.status_var.set(f"Updated {filename} - {len(df)} rows at {datetime.now().strftime('%H:%M:%S')}")
+            else:
+                self.status_var.set(f"No changes in {filename} - {len(df)} rows")
+            
         except Exception as e:
-            print(f"Could not toggle window state for {self.config.instrument}: {e}")
+            self.status_var.set(f"Error loading {filename}: {str(e)}")
+            print(f"DEBUG: Error loading {filename}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def update_plot_data(self):
+        """Update the plot with current data"""
+        print(f"DEBUG: update_plot_data called for file: {self.current_file}")
         
+        if self.current_data is None or self.current_data.empty:
+            print(f"DEBUG: No data to plot")
+            return
+        
+        df = self.current_data
+        print(f"DEBUG: Plotting {len(df)} rows from {self.current_file}")
+        
+        # Save current zoom state (only if we have existing data)
+        current_xlim = None
+        current_ylim = None
+        zoomed = False
+        viewing_end = False
+        
+        try:
+            current_xlim = self.ax.get_xlim()
+            current_ylim = self.ax.get_ylim()
+            zoomed = (current_xlim != (0, 1) or current_ylim != (0, 1))  # Check if zoomed
+            print(f"DEBUG: Zoom state - xlim: {current_xlim}, ylim: {current_ylim}, zoomed: {zoomed}")
+            
+            # Check if we're viewing the end of the data (for auto-scroll)
+            if zoomed and len(df) > 0 and self.auto_scroll_enabled:
+                # If we're zoomed and viewing near the end, we'll auto-scroll to new data
+                current_end = current_xlim[1]
+                data_length = len(df)
+                viewing_end = (current_end >= data_length * 0.9)  # If viewing last 10% of data
+        except Exception as e:
+            # If there's an error getting current limits, assume no zoom
+            print(f"DEBUG: Error getting zoom state: {e}")
+            zoomed = False
+            viewing_end = False
+        
+        print(f"DEBUG: Starting to update plot elements...")
+        
+        # Clear previous tolerance spans
+        if hasattr(self, 'tolerance_spans'):
+            for span in self.tolerance_spans:
+                span.remove()
+        self.tolerance_spans = []
+        
+        # Update price line
+        self.price_line.set_data(range(len(df)), df['bidclose'])
+        print(f"DEBUG: Price line updated with {len(df)} points")
+        
+        # Update median line if exists
+        if 'median_bidclose' in df.columns:
+            self.median_line.set_data(range(len(df)), df['median_bidclose'])
+        else:
+            self.median_line.set_data([], [])
+        print(f"DEBUG: Median line updated")
+        
+        # Update peaks
+        if 'peaks_min' in df.columns:
+            min_peaks = df[df['peaks_min'] == 1]
+            self.peaks_min_inf.set_data(min_peaks.index, min_peaks['bidclose'])
+        else:
+            self.peaks_min_inf.set_data([], [])
+            
+        if 'peaks_max' in df.columns:
+            max_peaks = df[df['peaks_max'] == 1]
+            self.peaks_max_inf.set_data(max_peaks.index, max_peaks['bidclose'])
+        else:
+            self.peaks_max_inf.set_data([], [])
+        print(f"DEBUG: Peaks updated")
+        
+        # Update short trend line
+        if 'short_trend' in df.columns:
+            self.short_trend_line.set_data(range(len(df)), df['short_trend'])
+        else:
+            self.short_trend_line.set_data([], [])
+        print(f"DEBUG: Short trend line updated")
+
+        # Update momentum line
+        if 'momentum' in df.columns:
+            self.momentum_line.set_data(range(len(df)), df['momentum'])
+        else:
+            self.momentum_line.set_data([], [])
+        print(f"DEBUG: Momentum line updated")
+        
+        # Update trade zones
+        if 'trade_zone_buy' in df.columns:
+            buy_zones = df[df['trade_zone_buy'] == 1]
+            self.trade_zone_buy_line.set_data(buy_zones.index, buy_zones['bidclose'])
+        else:
+            self.trade_zone_buy_line.set_data([], [])
+            
+        if 'trade_zone_sell' in df.columns:
+            sell_zones = df[df['trade_zone_sell'] == 1]
+            self.trade_zone_sell_line.set_data(sell_zones.index, sell_zones['bidclose'])
+        else:
+            self.trade_zone_sell_line.set_data([], [])
+        print(f"DEBUG: Trade zones updated")
+        
+        # Update tolerance zones
+        if 'tolerance_zone_buy' in df.columns:
+            tolerance_buy_indices = df[df['tolerance_zone_buy'] == 1].index
+            if len(tolerance_buy_indices) > 0:
+                tolerance_buy_ranges = self._create_continuous_ranges(tolerance_buy_indices)
+                for start_idx, end_idx in tolerance_buy_ranges:
+                    span = self.ax.axvspan(start_idx, end_idx, color='lime', alpha=0.15, zorder=0)
+                    self.tolerance_spans.append(span)
+        
+        if 'tolerance_zone_sell' in df.columns:
+            tolerance_sell_indices = df[df['tolerance_zone_sell'] == 1].index
+            if len(tolerance_sell_indices) > 0:
+                tolerance_sell_ranges = self._create_continuous_ranges(tolerance_sell_indices)
+                for start_idx, end_idx in tolerance_sell_ranges:
+                    span = self.ax.axvspan(start_idx, end_idx, color='red', alpha=0.15, zorder=0)
+                    self.tolerance_spans.append(span)
+        print(f"DEBUG: Tolerance zones updated")
+        
+        # Update signals
+        if 'signal' in df.columns:
+            buy_signals = df[df['signal'] == 1]
+            sell_signals = df[df['signal'] == -1]
+            self.trigger_buy.set_data(buy_signals.index, buy_signals['bidclose'])
+            self.trigger_sell.set_data(sell_signals.index, sell_signals['bidclose'])
+        else:
+            self.trigger_buy.set_data([], [])
+            self.trigger_sell.set_data([], [])
+        print(f"DEBUG: Signals updated")
+        
+        # Update plot limits
+        if zoomed and current_xlim is not None and current_ylim is not None:
+            # If zoomed, try to maintain the zoom level
+            try:
+                if len(df) > 0:
+                    if viewing_end:
+                        # Auto-scroll to show new data at the end
+                        new_data_length = len(df)
+                        window_size = current_xlim[1] - current_xlim[0]
+                        new_xlim = (new_data_length - window_size, new_data_length)
+                        self.ax.set_xlim(new_xlim)
+                        self.ax.set_ylim(current_ylim)
+                    else:
+                        # Keep the same zoom level
+                        self.ax.set_xlim(current_xlim)
+                        self.ax.set_ylim(current_ylim)
+                else:
+                    # Fallback to full view if no data
+                    self.ax.set_xlim(0, len(df))
+                    if len(df) > 0:
+                        price_min = df['bidclose'].min()
+                        price_max = df['bidclose'].max()
+                        margin = (price_max - price_min) * 0.01
+                        self.ax.set_ylim(price_min - margin, price_max + margin)
+            except:
+                # If there's an error maintaining zoom, reset to full view
+                self.ax.set_xlim(0, len(df))
+                if len(df) > 0:
+                    price_min = df['bidclose'].min()
+                    price_max = df['bidclose'].max()
+                    margin = (price_max - price_min) * 0.01
+                    self.ax.set_ylim(price_min - margin, price_max + margin)
+        else:
+            # If not zoomed, show full view
+            self.ax.set_xlim(0, len(df))
+            if len(df) > 0:
+                price_min = df['bidclose'].min()
+                price_max = df['bidclose'].max()
+                margin = (price_max - price_min) * 0.01
+                self.ax.set_ylim(price_min - margin, price_max + margin)
+                print(f"DEBUG: Price range - Min: {price_min}, Max: {price_max}, Margin: {margin}")
+                print(f"DEBUG: Y-axis limits set to: {price_min - margin} to {price_max + margin}")
+        
+        # Force refresh of the plot
+        self.ax.figure.canvas.draw_idle()
+        
+        # Update title
+        self.ax.set_title(f"{self.current_file} - {len(df)} candles", color='white', fontsize=12)
+        
+        # Redraw canvas
+        self.canvas.draw()
+        print(f"DEBUG: Canvas redrawn for {self.current_file}")
+    
     def _create_continuous_ranges(self, indices):
         """Create continuous ranges from a list of indices"""
         if len(indices) == 0:
@@ -143,210 +479,107 @@ class ForexPlotter:
         ranges.append((start_idx, prev_idx + 1))
         
         return ranges
+    
+    def start_auto_update(self):
+        """Start the auto-update thread"""
+        self.update_thread = threading.Thread(target=self._auto_update_loop, daemon=True)
+        self.update_thread.start()
+    
+    def _auto_update_loop(self):
+        """Auto-update loop that runs in a separate thread"""
+        while not self.stop_update:
+            if self.auto_update_enabled and self.current_file:
+                try:
+                    # Schedule the update on the main thread
+                    self.root.after(0, self._safe_update_data)
+                except Exception as e:
+                    print(f"Error in auto-update: {e}")
+            
+            # Wait for the update interval
+            time.sleep(self.update_interval)
+    
+    def _safe_update_data(self):
+        """Safely update data from the main thread"""
+        if self.current_file and os.path.exists(self.current_file):
+            try:
+                # Reload and update the current file
+                self.load_and_plot_data(self.current_file)
+                self.status_var.set(f"Auto-updated {self.current_file} at {datetime.now().strftime('%H:%M:%S')}")
+            except Exception as e:
+                self.status_var.set(f"Auto-update error: {str(e)}")
+    
+    def toggle_auto_update(self):
+        """Toggle auto-update on/off"""
+        self.auto_update_enabled = self.auto_update_var.get()
+        if self.auto_update_enabled:
+            self.status_var.set("Auto-update enabled")
+        else:
+            self.status_var.set("Auto-update disabled")
+    
+    def toggle_auto_scroll(self):
+        """Toggle auto-scroll on/off"""
+        self.auto_scroll_enabled = self.auto_scroll_var.get()
+        if self.auto_scroll_enabled:
+            self.status_var.set("Auto-scroll enabled")
+        else:
+            self.status_var.set("Auto-scroll disabled")
+    
+    def manual_update(self):
+        """Manually update the current file"""
+        if self.current_file:
+            self.load_and_plot_data(self.current_file)
+            self.status_var.set(f"Manually updated {self.current_file} at {datetime.now().strftime('%H:%M:%S')}")
+        else:
+            self.status_var.set("No file selected for update")
+    
+    def force_full_view(self):
+        """Force a full view of the data to ensure price lines are visible"""
+        if self.current_data is not None and not self.current_data.empty:
+            df = self.current_data
+            print(f"DEBUG: Force full view called for {len(df)} rows")
+            
+            # Clear any existing zoom
+            self.ax.set_xlim(0, len(df))
+            if len(df) > 0:
+                price_min = df['bidclose'].min()
+                price_max = df['bidclose'].max()
+                margin = (price_max - price_min) * 0.05  # 5% margin
+                self.ax.set_ylim(price_min - margin, price_max + margin)
+                print(f"DEBUG: Forced full view - Price range: {price_min} to {price_max}")
+                print(f"DEBUG: Y-axis limits set to: {price_min - margin} to {price_max + margin}")
+            
+            # Force canvas redraw
+            self.canvas.draw()
+            self.status_var.set(f"Forced full view - {len(df)} candles")
+            print(f"DEBUG: Full view applied successfully")
+        else:
+            print(f"DEBUG: No data available for full view")
+            self.status_var.set("No data available for full view")
+    
+    def run(self):
+        """Start the GUI application"""
+        # Schedule initial data load after GUI is ready
+        if self.csv_files:
+            self.root.after(100, self._load_initial_data)
+        
+        # Start the main loop
+        self.root.mainloop()
+        
+        # Clean up when closing
+        self.stop_update = True
+    
+    def _load_initial_data(self):
+        """Load initial data after GUI is ready"""
+        if self.csv_files:
+            self.listbox.selection_set(0)
+            self.load_and_plot_data(self.csv_files[0])
+            # Force full view after initial load
+            self.root.after(200, self.force_full_view)
 
-    def load_data(self) -> pd.DataFrame:
-        """Load and process the forex data"""
-        try:
-            # Construct the file path
-            file_name = f"{self.config.instrument}_{self.config.timeframe}.csv"
-            print(f"Loading data from: {file_name}")
-            
-            # Check if file exists
-            if not os.path.exists(file_name):
-                print(f"Error: File {file_name} not found in current directory: {os.getcwd()}")
-                return pd.DataFrame()
-            
-            # Read the CSV file
-            df = pd.read_csv(file_name)
-            print(f"Loaded {len(df)} rows")
-            
-            # Convert date column (acepta cualquier formato reconocible por pandas)
-            df['date'] = pd.to_datetime(df['date'], errors='coerce', infer_datetime_format=True)
-            
-            # Create numeric index for plotting
-            df['index'] = range(len(df))
-            df.set_index('index', inplace=True)
-            
-            return df
-        except Exception as e:
-            print(f"Error loading data: {str(e)}")
-            return pd.DataFrame()
-            
-    def update_plot(self, frame: int) -> List[plt.Line2D]:
-        """Update the plot for each animation frame"""
-        current_time = datetime.now().timestamp()
-        
-        # Only reload data if enough time has passed
-        if self.data is None or (current_time - self.last_update) > self.update_interval:
-            self.data = self.load_data()
-            self.last_update = current_time
-        
-        if self.data.empty:
-            print("No data available to plot")
-            return []
-            
-        try:
-            # Get current view limits
-            xlim = self.ax.get_xlim()
-            
-            # Ensure xlim is within valid range
-            xlim = (max(0, int(xlim[0])), min(len(self.data) - 1, int(xlim[1])))
-            
-            # Filter data based on current view
-            mask = (self.data.index >= xlim[0]) & (self.data.index <= xlim[1])
-            df_view = self.data[mask]
-            
-            if df_view.empty:
-                print("No data in the current view range")
-                return []
-
-            # Price line
-            self.price_line.set_data(df_view.index, df_view['bidclose'])
-            
-            # Línea de mediana móvil segmentada por tendencia
-            # Elimina segmentos anteriores
-            for seg in getattr(self, 'median_segments', []):
-                seg.remove()
-            self.median_segments = []
-            if 'median_bidclose' in df_view.columns and 'median_trend' in df_view.columns:
-                x = df_view.index.values
-                y = df_view['median_bidclose'].values
-                trend = df_view['median_trend'].values
-                # Segmenta por tendencia
-                current_color = None
-                seg_x = []
-                seg_y = []
-                for i in range(1, len(x)):
-                    color = 'lime' if trend[i] == 'going up' else ('red' if trend[i] == 'going down' else None)
-                    if color != current_color and seg_x:
-                        # Dibuja el segmento anterior
-                        if current_color:
-                            line, = self.ax.plot(seg_x, seg_y, color=current_color, linewidth=2, zorder=2)
-                            self.median_segments.append(line)
-                        seg_x = [x[i-1]]
-                        seg_y = [y[i-1]]
-                        current_color = color
-                    seg_x.append(x[i])
-                    seg_y.append(y[i])
-                # Dibuja el último segmento
-                if seg_x and current_color:
-                    line, = self.ax.plot(seg_x, seg_y, color=current_color, linewidth=2, zorder=2)
-                    self.median_segments.append(line)
-            
-            self.trigger_buy.set_data(df_view[df_view['signal'] == 1.0].index, df_view[df_view['signal'] == 1.0]['bidclose'])
-            self.trigger_sell.set_data(df_view[df_view['signal'] == -1.0].index, df_view[df_view['signal'] == -1.0]['bidclose'])
-            # Peaks min/max
-            self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1].index, df_view[df_view['peaks_min'] == 1]['bidclose'])
-            self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1].index, df_view[df_view['peaks_max'] == 1]['bidclose'])
-            # Trade zones (zonas finales de trading calculadas)
-            if 'trade_zone_buy' in df_view.columns:
-                self.trade_zone_buy_line.set_data(df_view[df_view['trade_zone_buy'] == 1].index, df_view[df_view['trade_zone_buy'] == 1]['bidclose'])
-            else:
-                self.trade_zone_buy_line.set_data([], [])
-            if 'trade_zone_sell' in df_view.columns:
-                self.trade_zone_sell_line.set_data(df_view[df_view['trade_zone_sell'] == 1].index, df_view[df_view['trade_zone_sell'] == 1]['bidclose'])
-            else:
-                self.trade_zone_sell_line.set_data([], [])
-            
-            # Visualización de las zonas de tolerancia (las zonas ya están marcadas en el DataFrame)
-            # Limpia bandas previas si existen
-            if hasattr(self, 'tolerance_spans'):
-                for span in self.tolerance_spans:
-                    span.remove()
-            self.tolerance_spans = []
-            
-            # Zonas de tolerancia de compra (lime) - mostrar solo los puntos marcados
-            if 'tolerance_zone_buy' in df_view.columns:
-                tolerance_buy_indices = df_view[df_view['tolerance_zone_buy'] == 1].index
-                if len(tolerance_buy_indices) > 0:
-                    # Crear bandas continuas para las zonas de tolerancia
-                    tolerance_buy_ranges = self._create_continuous_ranges(tolerance_buy_indices)
-                    for start_idx, end_idx in tolerance_buy_ranges:
-                        span = self.ax.axvspan(start_idx, end_idx, color='lime', alpha=0.15, zorder=0)
-                        self.tolerance_spans.append(span)
-            
-            # Zonas de tolerancia de venta (red) - mostrar solo los puntos marcados
-            if 'tolerance_zone_sell' in df_view.columns:
-                tolerance_sell_indices = df_view[df_view['tolerance_zone_sell'] == 1].index
-                if len(tolerance_sell_indices) > 0:
-                    # Crear bandas continuas para las zonas de tolerancia
-                    tolerance_sell_ranges = self._create_continuous_ranges(tolerance_sell_indices)
-                    for start_idx, end_idx in tolerance_sell_ranges:
-                        span = self.ax.axvspan(start_idx, end_idx, color='red', alpha=0.15, zorder=0)
-                        self.tolerance_spans.append(span)
-
-            # Ajuste de límites
-            self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
-            
-            # Devuelve también los segmentos de la mediana
-            return [
-                self.price_line,
-                *self.median_segments,
-                self.peaks_min_inf,
-                self.peaks_max_inf,
-                self.trigger_buy,
-                self.trigger_sell,
-                self.trade_zone_buy_line,
-                self.trade_zone_sell_line
-            ]
-        except Exception as e:
-            print(f"Error updating plot: {str(e)}")
-            return []
-        
-    def animate(self) -> None:
-        """Start the animation"""
-        # Load initial data
-        self.data = self.load_data()
-        if self.data.empty:
-            print("Failed to load initial data")
-            return
-            
-        self.last_update = datetime.now().timestamp()
-        
-        # Set initial view limits
-        self.ax.set_xlim(0, len(self.data))
-        self.ax.set_ylim(self.data['bidclose'].min() * 0.999, self.data['bidclose'].max() * 1.001)
-        
-        # Add keyboard event handler for toggling window state
-        def on_key_press(event):
-            if event.key == 'm' or event.key == 'M':
-                self.toggle_window_state()
-            elif event.key == 'escape':
-                plt.close(self.fig)
-        
-        self.fig.canvas.mpl_connect('key_press_event', on_key_press)
-        
-        # Create animation with faster interval for smoother zoom
-        ani = animation.FuncAnimation(
-            self.fig, 
-            self.update_plot, 
-            frames=None,
-            interval=4000,  # Cambiado a 1000 ms (1 segundo) para un refresco más lento
-            blit=True
-        )
-        
-        # Show instructions in console
-        print(f"Plotter for {self.config.instrument} started (minimized)")
-        print("Press 'M' to toggle minimize/restore window")
-        print("Press 'ESC' to close window")
-        
-        plt.show()
-
-def run_plotter_for_instrument(instrument):
-    config = PlotConfig(
-        instrument=instrument.replace("/", "_"),  # Asegúrate que el nombre del archivo coincida
-        timeframe=ConfigurationOperation.timeframe
-    )
-    plotter = ForexPlotter(config)
-    plotter.animate()
+def run_single_plotter():
+    """Run the single window plotter"""
+    plotter = ForexPlotterGUI()
+    plotter.run()
 
 if __name__ == "__main__":
-    from ConfigurationOperation import ConfigurationOperation
-    instruments = [i.replace("/", "_") for i in ConfigurationOperation.instruments]
-    processes = []
-    for instrument in instruments:
-        p = multiprocessing.Process(target=run_plotter_for_instrument, args=(instrument,))
-        p.start()
-        processes.append(p)
-    for p in processes:
-        p.join()
+    run_single_plotter()

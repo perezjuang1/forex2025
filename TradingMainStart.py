@@ -78,15 +78,10 @@ def run_trading_for_instrument(instrument):
 def run_plotter_for_instrument(instrument):
     """Run the plotter for a specific instrument"""
     try:
-        from Plotter2025 import PlotConfig, ForexPlotter
-        config = PlotConfig(
-            instrument=instrument.replace("/", "_"),
-            timeframe=ConfigurationOperation.timeframe
-        )
-        plotter = ForexPlotter(config)
-        plotter.animate()
+        from Plotter2025 import run_single_plotter
+        run_single_plotter()
     except Exception as e:
-        print(f"Error running plotter for {instrument}: {str(e)}")
+        print(f"Error running plotter: {str(e)}")
         print(traceback.format_exc())
 
 if __name__ == "__main__":
@@ -105,24 +100,19 @@ if __name__ == "__main__":
         trading_threads.append(t)
         print(f"Started trading thread for {instrument}")
     
-    # Start plotting processes (separate processes for GUI)
-    plotting_processes = []
-    for instrument in instruments:
-        p = multiprocessing.Process(target=run_plotter_for_instrument, args=(instrument,))
-        p.start()
-        plotting_processes.append(p)
-        print(f"Started plotting process for {instrument}")
+    # Start single plotter process
+    print("Starting single window plotter...")
+    plotter_process = multiprocessing.Process(target=run_plotter_for_instrument, args=(None,))
+    plotter_process.start()
     
     try:
-        # Wait for all processes to complete (they won't unless there's an error)
-        for p in plotting_processes:
-            p.join()
+        # Wait for plotter process to complete
+        plotter_process.join()
     except KeyboardInterrupt:
         print("\nShutting down...")
-        # Terminate plotting processes
-        for p in plotting_processes:
-            if p.is_alive():
-                p.terminate()
-                p.join()
+        # Terminate plotter process
+        if plotter_process.is_alive():
+            plotter_process.terminate()
+            plotter_process.join()
         print("All processes terminated.")
 

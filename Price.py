@@ -228,26 +228,41 @@ class Price:
                 df[col] = default_value
                 self._log_message(f"Created missing column: {col}", level='warning')
 
-    def add_median_and_trend(self, df: pd.DataFrame, window: int = 500) -> pd.DataFrame:
-        """Add moving median and median trend to the DataFrame"""
+    def add_median_and_trend(self, df: pd.DataFrame, window: int = 100) -> pd.DataFrame:
+        """Add moving median and median trend to the DataFrame with faster response"""
+        # Reduce window size for faster trend detection
         df['median_bidclose'] = df['bidclose'].rolling(window=window, center=True, min_periods=1).median()
+        
+        # Add short-term trend for early detection
+        df['short_trend'] = df['bidclose'].rolling(window=50, center=True, min_periods=1).mean()
+        
+        # Calculate trend with faster response
         raw_trend = np.where(
             df['median_bidclose'].diff() > 0, 'going up',
             np.where(df['median_bidclose'].diff() < 0, 'going down', 'flat')
         )
+        
+        # Add momentum indicator for early trend detection
+        df['momentum'] = df['bidclose'].diff(5)  # 5-period momentum
+        
         trend_filled = []
         last_trend = None
-        for t in raw_trend:
+        for i, t in enumerate(raw_trend):
             if t == 'flat' and last_trend is not None:
-                trend_filled.append(last_trend)
+                # Use momentum to predict trend change
+                if i > 0 and df['momentum'].iloc[i] > 0 and last_trend == 'going down':
+                    trend_filled.append('going up')
+                elif i > 0 and df['momentum'].iloc[i] < 0 and last_trend == 'going up':
+                    trend_filled.append('going down')
+                else:
+                    trend_filled.append(last_trend)
             else:
                 trend_filled.append(t)
                 if t != 'flat':
                     last_trend = t
+        
         df['median_trend'] = trend_filled
         return df
-    
-
 
     def calculate_peaks(self, df: pd.DataFrame, order: int = 50) -> pd.DataFrame:
         """Calculate price peaks"""
@@ -283,29 +298,29 @@ class Price:
             df['peaks_max'] = 0
 
     def _calculate_optimal_order(self, df, base_order):
-        """Calculate optimal order based on data characteristics"""
+        """Calculate optimal order with faster response for recent data"""
         try:
             data_length = len(df)
             
-            # Simple adaptive logic based on data length
+            # Reduce order for faster peak detection
             if data_length < 500:
-                optimal_order = max(10, base_order // 2)  # 25
+                optimal_order = max(5, base_order // 4)  # 12-13
             elif data_length < 1000:
-                optimal_order = max(15, base_order // 1.5)  # ~33
+                optimal_order = max(8, base_order // 3)  # ~17
             elif data_length > 3000:
-                optimal_order = min(100, base_order * 1.5)  # 75
+                optimal_order = min(50, base_order)  # 50 instead of 75
             else:
-                optimal_order = base_order  # 50
+                optimal_order = base_order // 2  # 25 instead of 50
             
             # Ensure reasonable bounds and convert to int
-            optimal_order = int(max(5, min(optimal_order, data_length // 4)))
+            optimal_order = int(max(3, min(optimal_order, data_length // 8)))
             
             self._log_message(f"Data length: {data_length}, Optimal order: {optimal_order}")
             return optimal_order
             
         except Exception as e:
             self._log_message(f"Error in optimal order calculation: {e}", level='error')
-            return int(base_order)
+            return int(base_order // 2)
 
     def _mark_trading_zones(self, df):
         """Mark trade opening zones based on price action and trend conditions"""
@@ -343,28 +358,36 @@ class Price:
         # TREND FOLLOWING STRATEGY (Seguir la Tendencia)
         # ============================================================================
         
-        # Trend Following BUY: minimum peaks in uptrend
+        # Trend Following BUY: minimum peaks in uptrend (comprar en mínimos cuando sube)
         trend_following_buy_points = df[
             (df['peaks_min'].values == 1) & 
             (df['median_trend'].values == 'going up')
         ].index
 
-        # Trend Following SELL: maximum peaks in downtrend
+        # Trend Following SELL: maximum peaks in uptrend (vender en máximos cuando sube)
         trend_following_sell_points = df[
             (df['peaks_max'].values == 1) & 
-            (df['median_trend'].values == 'going down')
+            (df['median_trend'].values == 'going up')
         ].index
 
         # ============================================================================
         # REVERSAL STRATEGY (Detectar Reversiones Reales)
         # ============================================================================
         
-        # Detectar puntos de reversión basados en cambios de tendencia
-        reversal_buy_points = self._detect_reversal_buy_points(df)
-        reversal_sell_points = self._detect_reversal_sell_points(df)
+        # Reversal BUY: maximum peaks in downtrend (comprar en máximos cuando baja - reversión alcista)
+        reversal_buy_points = df[
+            (df['peaks_max'].values == 1) & 
+            (df['median_trend'].values == 'going down')
+        ].index
+
+        # Reversal SELL: minimum peaks in uptrend (vender en mínimos cuando sube - reversión bajista)
+        reversal_sell_points = df[
+            (df['peaks_min'].values == 1) & 
+            (df['median_trend'].values == 'going up')
+        ].index
 
         # ============================================================================
-        # COMBINE STRATEGIES (evitar conflictos)
+        # COMBINE STRATEGIES (priorizar reversiones sobre trend following)
         # ============================================================================
         
         # Combine BUY signals (trend following + reversal)
@@ -397,51 +420,29 @@ class Price:
 
         # Log the results
         self._log_message(f"Trading zones marked with tolerance: {tolerance} candles around condition points")
-        self._log_message(f"Trend Following - Buy: {len(trend_following_buy_points)}, Sell: {len(trend_following_sell_points)}")
-        self._log_message(f"Reversal - Buy: {len(reversal_buy_points)}, Sell: {len(reversal_sell_points)}")
+        self._log_message(f"Trend Following - Buy (mínimos en subida): {len(trend_following_buy_points)}, Sell (máximos en subida): {len(trend_following_sell_points)}")
+        self._log_message(f"Reversal - Buy (máximos en bajada): {len(reversal_buy_points)}, Sell (mínimos en subida): {len(reversal_sell_points)}")
         self._log_message(f"Total - Buy: {len(all_buy_points)}, Sell: {len(all_sell_points)}")
 
+        # Add early trend detection for recent data
+        recent_data = df.tail(100)  # Last 100 candles
+        
+        # Check for early trend reversal in recent data
+        if len(recent_data) >= 20:
+            recent_momentum = recent_data['bidclose'].diff(5).tail(10).mean()
+            current_trend = df['median_trend'].iloc[-1]
+            
+            # Early trend detection
+            if recent_momentum > 0 and current_trend == 'going down':
+                # Potential reversal to uptrend
+                df.loc[df.index[-10:], 'trade_trend_zone_buy'] = 1
+                self._log_message("Early uptrend detection in recent data")
+            elif recent_momentum < 0 and current_trend == 'going up':
+                # Potential reversal to downtrend
+                df.loc[df.index[-10:], 'trade_trend_zone_sell'] = 1
+                self._log_message("Early downtrend detection in recent data")
+
         return df
-
-    def _detect_reversal_buy_points(self, df):
-        """Detect reversal buy points based on trend changes and price action"""
-        reversal_points = []
-        
-        # Look for potential reversal buy points
-        for i in range(2, len(df) - 2):
-            # Check if we have a minimum peak
-            if df['peaks_min'].iloc[i] == 1:
-                # Check if trend is going down (potential reversal point)
-                if df['median_trend'].iloc[i] == 'going down':
-                    # Check if price is making higher lows (divergence)
-                    if (df['bidclose'].iloc[i] > df['bidclose'].iloc[i-2] and 
-                        df['bidclose'].iloc[i] > df['bidclose'].iloc[i-1]):
-                        # Check if median is starting to turn up
-                        if (i < len(df) - 1 and 
-                            df['median_trend'].iloc[i+1] == 'going up'):
-                            reversal_points.append(i)
-        
-        return pd.Index(reversal_points)
-
-    def _detect_reversal_sell_points(self, df):
-        """Detect reversal sell points based on trend changes and price action"""
-        reversal_points = []
-        
-        # Look for potential reversal sell points
-        for i in range(2, len(df) - 2):
-            # Check if we have a maximum peak
-            if df['peaks_max'].iloc[i] == 1:
-                # Check if trend is going up (potential reversal point)
-                if df['median_trend'].iloc[i] == 'going up':
-                    # Check if price is making lower highs (divergence)
-                    if (df['bidclose'].iloc[i] < df['bidclose'].iloc[i-2] and 
-                        df['bidclose'].iloc[i] < df['bidclose'].iloc[i-1]):
-                        # Check if median is starting to turn down
-                        if (i < len(df) - 1 and 
-                            df['median_trend'].iloc[i+1] == 'going down'):
-                            reversal_points.append(i)
-        
-        return pd.Index(reversal_points)
 
     def apply_triggers_strategy(self, df: pd.DataFrame, config=None) -> pd.DataFrame:
         """Apply the triggers strategy to generate signals"""
