@@ -28,6 +28,22 @@ class ForexPlotter:
         self.config = config
         self.fig, self.ax = plt.subplots(figsize=(15, 8))
         self.fig.canvas.manager.set_window_title(f"{self.config.instrument} - Forex Plotter")
+        
+        # Minimize the window on startup
+        try:
+            # Try to minimize the window using the backend-specific method
+            if hasattr(self.fig.canvas.manager, 'window'):
+                # For TkAgg backend
+                self.fig.canvas.manager.window.state('iconic')
+            elif hasattr(self.fig.canvas.manager, 'window') and hasattr(self.fig.canvas.manager.window, 'iconify'):
+                # For Qt backend
+                self.fig.canvas.manager.window.iconify()
+            else:
+                # Fallback: try to set window state to minimized
+                self.fig.canvas.manager.set_window_title(f"{self.config.instrument} - Forex Plotter (Minimized)")
+        except Exception as e:
+            print(f"Could not minimize window for {self.config.instrument}: {e}")
+        
         self.setup_plot()
         self.setup_lines()
         self.data = None
@@ -54,35 +70,80 @@ class ForexPlotter:
         self.peaks_max_inf, = self.ax.plot([], [], linestyle='dotted', marker='o', color='orange', label='Max Peaks')
         # Línea de mediana móvil segmentada por tendencia
         self.median_segments = []  # Para almacenar los segmentos de la mediana
-        # Línea suavizada de picos máximos
-        self.max_peaks_smooth_proj_line, = self.ax.plot([], [], color='magenta', linewidth=2, linestyle='--', label='Max Peaks Smooth+Proj', zorder=3)
-        # Línea suavizada de picos mínimos
-        self.min_peaks_smooth_proj_line, = self.ax.plot([], [], color='cyan', linewidth=2, linestyle='--', label='Min Peaks Smooth+Proj', zorder=3)
         # Trigger markers
-        self.trigger_buy, = self.ax.plot([], [], 'D', color='white', label='Buy Trigger', zorder=30)
-        self.trigger_sell, = self.ax.plot([], [], 'd', color='blue', label='Sell Trigger', zorder=30)
-        # Trade open zones
-        self.trade_open_zone_min_line, = self.ax.plot([], [], '*', color='lime', markersize=18, label='Trade Open Buy (Confluence)', zorder=1)
-        self.trade_open_zone_max_line, = self.ax.plot([], [], '*', color='red', markersize=18, label='Trade Open Sell (Confluence)', zorder=1)
-        # ...existing code...
+        self.trigger_buy, = self.ax.plot([], [], 'D', color='white', label='Buy Signal', zorder=30)
+        self.trigger_sell, = self.ax.plot([], [], 'd', color='blue', label='Sell Signal', zorder=30)
+        # Trade zones (combinadas: trend following + reversal)
+        self.trade_zone_buy_line, = self.ax.plot([], [], '*', color='lime', markersize=20, label='Trade Zone Buy (Trend+Reversal)', zorder=2)
+        self.trade_zone_sell_line, = self.ax.plot([], [], '*', color='red', markersize=20, label='Trade Zone Sell (Trend+Reversal)', zorder=2)
+
+        
         # Leyenda
         from matplotlib.patches import Patch
         handles, labels = self.ax.get_legend_handles_labels()
         unique = dict(zip(labels, handles))
-        # Añadir manualmente la zona de tolerancia (lime/red bands)
-        tolerance_patch_buy = Patch(facecolor='lime', edgecolor='none', alpha=0.15, label='Zona de Tolerancia Buy')
-        tolerance_patch_sell = Patch(facecolor='red', edgecolor='none', alpha=0.15, label='Zona de Tolerancia Sell')
+        # Añadir manualmente la mediana móvil y zonas de tolerancia
+        median_patch_up = Patch(facecolor='lime', edgecolor='none', alpha=0.8, label='Median (Up Trend)')
+        median_patch_down = Patch(facecolor='red', edgecolor='none', alpha=0.8, label='Median (Down Trend)')
+        tolerance_patch_buy = Patch(facecolor='lime', edgecolor='none', alpha=0.15, label='Tolerance Zone Buy')
+        tolerance_patch_sell = Patch(facecolor='red', edgecolor='none', alpha=0.15, label='Tolerance Zone Sell')
+        
         # Solo agregar si no existen ya
         legend_handles = list(unique.values())
         legend_labels = list(unique.keys())
-        if 'Zona de Tolerancia Buy' not in legend_labels:
+        
+        if 'Median (Up Trend)' not in legend_labels:
+            legend_handles.append(median_patch_up)
+            legend_labels.append('Median (Up Trend)')
+        if 'Median (Down Trend)' not in legend_labels:
+            legend_handles.append(median_patch_down)
+            legend_labels.append('Median (Down Trend)')
+        if 'Tolerance Zone Buy' not in legend_labels:
             legend_handles.append(tolerance_patch_buy)
-            legend_labels.append('Zona de Tolerancia Buy')
-        if 'Zona de Tolerancia Sell' not in legend_labels:
+            legend_labels.append('Tolerance Zone Buy')
+        if 'Tolerance Zone Sell' not in legend_labels:
             legend_handles.append(tolerance_patch_sell)
-            legend_labels.append('Zona de Tolerancia Sell')
+            legend_labels.append('Tolerance Zone Sell')
+            
         self.ax.legend(legend_handles, legend_labels, facecolor='#1a1a1a', edgecolor='white', labelcolor='white')
         
+    def toggle_window_state(self):
+        """Toggle between minimized and normal window state"""
+        try:
+            if hasattr(self.fig.canvas.manager, 'window'):
+                current_state = self.fig.canvas.manager.window.state()
+                if current_state == 'iconic':
+                    # Restore window
+                    self.fig.canvas.manager.window.state('normal')
+                    print(f"Window restored for {self.config.instrument}")
+                else:
+                    # Minimize window
+                    self.fig.canvas.manager.window.state('iconic')
+                    print(f"Window minimized for {self.config.instrument}")
+        except Exception as e:
+            print(f"Could not toggle window state for {self.config.instrument}: {e}")
+        
+    def _create_continuous_ranges(self, indices):
+        """Create continuous ranges from a list of indices"""
+        if len(indices) == 0:
+            return []
+        
+        ranges = []
+        start_idx = indices[0]
+        prev_idx = indices[0]
+        
+        for idx in indices[1:]:
+            if idx != prev_idx + 1:
+                # Gap found, end current range and start new one
+                ranges.append((start_idx, prev_idx + 1))
+                start_idx = idx
+            prev_idx = idx
+        
+        # Add the last range
+        ranges.append((start_idx, prev_idx + 1))
+        
+        return ranges
+
     def load_data(self) -> pd.DataFrame:
         """Load and process the forex data"""
         try:
@@ -141,17 +202,7 @@ class ForexPlotter:
 
             # Price line
             self.price_line.set_data(df_view.index, df_view['bidclose'])
-            # Línea suavizada de picos máximos
-            if 'max_peaks_smooth_proj' in df_view.columns:
-                self.max_peaks_smooth_proj_line.set_data(df_view.index, df_view['max_peaks_smooth_proj'])
-            else:
-                self.max_peaks_smooth_proj_line.set_data([], [])
-            # Línea suavizada de picos mínimos
-            if 'min_peaks_smooth_proj' in df_view.columns:
-                self.min_peaks_smooth_proj_line.set_data(df_view.index, df_view['min_peaks_smooth_proj'])
-            else:
-                self.min_peaks_smooth_proj_line.set_data([], [])
-            # ...
+            
             # Línea de mediana móvil segmentada por tendencia
             # Elimina segmentos anteriores
             for seg in getattr(self, 'median_segments', []):
@@ -181,57 +232,62 @@ class ForexPlotter:
                 if seg_x and current_color:
                     line, = self.ax.plot(seg_x, seg_y, color=current_color, linewidth=2, zorder=2)
                     self.median_segments.append(line)
+            
             self.trigger_buy.set_data(df_view[df_view['signal'] == 1.0].index, df_view[df_view['signal'] == 1.0]['bidclose'])
             self.trigger_sell.set_data(df_view[df_view['signal'] == -1.0].index, df_view[df_view['signal'] == -1.0]['bidclose'])
             # Peaks min/max
             self.peaks_min_inf.set_data(df_view[df_view['peaks_min'] == 1].index, df_view[df_view['peaks_min'] == 1]['bidclose'])
             self.peaks_max_inf.set_data(df_view[df_view['peaks_max'] == 1].index, df_view[df_view['peaks_max'] == 1]['bidclose'])
-            # Trade open zones
-            if 'trade_open_zone_buy' in df_view.columns:
-                self.trade_open_zone_min_line.set_data(df_view[df_view['trade_open_zone_buy'] == 1].index, df_view[df_view['trade_open_zone_buy'] == 1]['bidclose'])
+            # Trade zones (zonas finales de trading calculadas)
+            if 'trade_zone_buy' in df_view.columns:
+                self.trade_zone_buy_line.set_data(df_view[df_view['trade_zone_buy'] == 1].index, df_view[df_view['trade_zone_buy'] == 1]['bidclose'])
             else:
-                self.trade_open_zone_min_line.set_data([], [])
-            if 'trade_open_zone_sell' in df_view.columns:
-                self.trade_open_zone_max_line.set_data(df_view[df_view['trade_open_zone_sell'] == 1].index, df_view[df_view['trade_open_zone_sell'] == 1]['bidclose'])
+                self.trade_zone_buy_line.set_data([], [])
+            if 'trade_zone_sell' in df_view.columns:
+                self.trade_zone_sell_line.set_data(df_view[df_view['trade_zone_sell'] == 1].index, df_view[df_view['trade_zone_sell'] == 1]['bidclose'])
             else:
-                self.trade_open_zone_max_line.set_data([], [])
-            # Visualización de la zona de tolerancia
+                self.trade_zone_sell_line.set_data([], [])
+            
+            # Visualización de las zonas de tolerancia (las zonas ya están marcadas en el DataFrame)
             # Limpia bandas previas si existen
             if hasattr(self, 'tolerance_spans'):
                 for span in self.tolerance_spans:
                     span.remove()
             self.tolerance_spans = []
-            tolerance = ConfigurationOperation.tolerance_peaks  # Usar el valor centralizado
-            # Zonas de compra (lime)
-            if 'trade_open_zone_buy' in df_view.columns:
-                for idx in df_view[df_view['trade_open_zone_buy'] == 1].index:
-                    span = self.ax.axvspan(idx - tolerance, idx + tolerance, color='lime', alpha=0.15, zorder=0)
-                    self.tolerance_spans.append(span)
-            # Zonas de venta (red)
-            if 'trade_open_zone_sell' in df_view.columns:
-                for idx in df_view[df_view['trade_open_zone_sell'] == 1].index:
-                    span = self.ax.axvspan(idx - tolerance, idx + tolerance, color='red', alpha=0.15, zorder=0)
-                    self.tolerance_spans.append(span)
+            
+            # Zonas de tolerancia de compra (lime) - mostrar solo los puntos marcados
+            if 'tolerance_zone_buy' in df_view.columns:
+                tolerance_buy_indices = df_view[df_view['tolerance_zone_buy'] == 1].index
+                if len(tolerance_buy_indices) > 0:
+                    # Crear bandas continuas para las zonas de tolerancia
+                    tolerance_buy_ranges = self._create_continuous_ranges(tolerance_buy_indices)
+                    for start_idx, end_idx in tolerance_buy_ranges:
+                        span = self.ax.axvspan(start_idx, end_idx, color='lime', alpha=0.15, zorder=0)
+                        self.tolerance_spans.append(span)
+            
+            # Zonas de tolerancia de venta (red) - mostrar solo los puntos marcados
+            if 'tolerance_zone_sell' in df_view.columns:
+                tolerance_sell_indices = df_view[df_view['tolerance_zone_sell'] == 1].index
+                if len(tolerance_sell_indices) > 0:
+                    # Crear bandas continuas para las zonas de tolerancia
+                    tolerance_sell_ranges = self._create_continuous_ranges(tolerance_sell_indices)
+                    for start_idx, end_idx in tolerance_sell_ranges:
+                        span = self.ax.axvspan(start_idx, end_idx, color='red', alpha=0.15, zorder=0)
+                        self.tolerance_spans.append(span)
 
-            # ...existing code...
-
-            # ...existing code...
-            # Eliminar líneas y marcadores relacionados con centro_picos_max_suave, centro_picos_min_suave, tendencias y marcadores especiales
-            # (No crear ni actualizar self.centro_picos_max_suave_line, self.centro_picos_min_suave_line, self.trend_max_up, self.trend_max_down, self.trend_max_flat, self.trend_min_up, self.trend_min_down, self.trend_min_flat, self.last_min_trend_marker, self.last_max_trend_marker)
             # Ajuste de límites
             self.ax.set_ylim(df_view['bidclose'].min() * 0.999, df_view['bidclose'].max() * 1.001)
+            
             # Devuelve también los segmentos de la mediana
             return [
                 self.price_line,
                 *self.median_segments,
-                self.max_peaks_smooth_proj_line,
-                self.min_peaks_smooth_proj_line,
                 self.peaks_min_inf,
                 self.peaks_max_inf,
                 self.trigger_buy,
                 self.trigger_sell,
-                self.trade_open_zone_min_line,
-                self.trade_open_zone_max_line
+                self.trade_zone_buy_line,
+                self.trade_zone_sell_line
             ]
         except Exception as e:
             print(f"Error updating plot: {str(e)}")
@@ -251,6 +307,15 @@ class ForexPlotter:
         self.ax.set_xlim(0, len(self.data))
         self.ax.set_ylim(self.data['bidclose'].min() * 0.999, self.data['bidclose'].max() * 1.001)
         
+        # Add keyboard event handler for toggling window state
+        def on_key_press(event):
+            if event.key == 'm' or event.key == 'M':
+                self.toggle_window_state()
+            elif event.key == 'escape':
+                plt.close(self.fig)
+        
+        self.fig.canvas.mpl_connect('key_press_event', on_key_press)
+        
         # Create animation with faster interval for smoother zoom
         ani = animation.FuncAnimation(
             self.fig, 
@@ -259,6 +324,12 @@ class ForexPlotter:
             interval=4000,  # Cambiado a 1000 ms (1 segundo) para un refresco más lento
             blit=True
         )
+        
+        # Show instructions in console
+        print(f"Plotter for {self.config.instrument} started (minimized)")
+        print("Press 'M' to toggle minimize/restore window")
+        print("Press 'ESC' to close window")
+        
         plt.show()
 
 def run_plotter_for_instrument(instrument):

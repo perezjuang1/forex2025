@@ -1,7 +1,7 @@
 import datetime as dt
 from datetime import datetime
-from backports.zoneinfo import ZoneInfo
 import time
+import pytz
 
 class ConfigurationOperation:
     # Parámetros centralizados para la estrategia
@@ -27,7 +27,7 @@ class ConfigurationOperation:
     dateFormat = '%m.%d.%Y %H:%M:%S'
     date_from =  None
     date_to = None
-    days = 5
+    days = 8
 
     peggedstop = 'Y'
     peggedlimit = 'Y'
@@ -38,10 +38,10 @@ class ConfigurationOperation:
     # Centralizar la lista de instrumentos aquí
     instruments = ["EUR/USD", "GBP/USD", "EUR/JPY", "AUD/JPY", "EUR/CAD"]
     # Tolerancia global para picos
-    tolerance_peaks = 20
+    tolerance_peaks = 10
 
     def __init__(self):   
-        europe_London_datetime = datetime.now(ZoneInfo('Europe/London') )
+        europe_London_datetime = datetime.now(pytz.timezone('Europe/London') )
         self.date_from =  europe_London_datetime - dt.timedelta(days=self.days)
         self.date_to = europe_London_datetime
 

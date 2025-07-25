@@ -5,6 +5,7 @@ import time
 import numpy as np
 import traceback
 import threading
+import multiprocessing
 from ConfigurationOperation import ConfigurationOperation
 
 class Trading:
@@ -13,15 +14,19 @@ class Trading:
             timeframe = ConfigurationOperation.timeframe
         self.timeframe = timeframe
         self.instrument = instrument
-        self.robotconnection = RobotConnection()
-        self.connection = self.robotconnection.getConnection()
-        self.corepy = self.robotconnection.getCorepy()
-        self._robot_price = Price(days, self.instrument, self.timeframe)
         self.days = days
+        
+        # Initialize Price object which handles connection internally
+        self._robot_price = Price(days, self.instrument, self.timeframe)
+        
+        # Get connection from Price object to avoid duplication
+        self.connection = self._robot_price.connection
+        self.robotconnection = self._robot_price.robotconnection
 
     def __del__(self):
         print('Object gets destroyed')
-        self.connection.logout()
+        if self.connection:
+            self.connection.logout()
 
     def start_trade_monitor(self):    
         self.operation_detection(timeframe=self.timeframe)  
@@ -48,6 +53,9 @@ class Trading:
         try:
             print(f"[LOG] Iniciando operación_detection - timeframe: {timeframe} - " + str(dt.datetime.now())  )
             df = self._robot_price.get_price_data(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
+            df = self._robot_price.triggers_trades(df)
+            df = self._robot_price.triggers_trades_close(df)
+            print(df)
         except Exception as e:
             print("Exception: " + str(e))
             print(traceback.format_exc())
@@ -67,14 +75,54 @@ def run_trading_for_instrument(instrument):
             print("20 seconds to restart...")
             time.sleep(20)
 
+def run_plotter_for_instrument(instrument):
+    """Run the plotter for a specific instrument"""
+    try:
+        from Plotter2025 import PlotConfig, ForexPlotter
+        config = PlotConfig(
+            instrument=instrument.replace("/", "_"),
+            timeframe=ConfigurationOperation.timeframe
+        )
+        plotter = ForexPlotter(config)
+        plotter.animate()
+    except Exception as e:
+        print(f"Error running plotter for {instrument}: {str(e)}")
+        print(traceback.format_exc())
+
 if __name__ == "__main__":
     from ConfigurationOperation import ConfigurationOperation
     instruments = ConfigurationOperation.instruments
-    threads = []
+    
+    print("Starting Trading and Plotting System...")
+    print(f"Instruments: {instruments}")
+    
+    # Start trading threads
+    trading_threads = []
     for instrument in instruments:
         t = threading.Thread(target=run_trading_for_instrument, args=(instrument,))
+        t.daemon = True  # Make threads daemon so they exit when main program exits
         t.start()
-        threads.append(t)
-    for t in threads:
-        t.join()
+        trading_threads.append(t)
+        print(f"Started trading thread for {instrument}")
+    
+    # Start plotting processes (separate processes for GUI)
+    plotting_processes = []
+    for instrument in instruments:
+        p = multiprocessing.Process(target=run_plotter_for_instrument, args=(instrument,))
+        p.start()
+        plotting_processes.append(p)
+        print(f"Started plotting process for {instrument}")
+    
+    try:
+        # Wait for all processes to complete (they won't unless there's an error)
+        for p in plotting_processes:
+            p.join()
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        # Terminate plotting processes
+        for p in plotting_processes:
+            if p.is_alive():
+                p.terminate()
+                p.join()
+        print("All processes terminated.")
 
