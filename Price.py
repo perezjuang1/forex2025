@@ -8,7 +8,6 @@ import logging
 import os
 from ConfigurationOperation import ConfigurationOperation
 
-# Conditional import for RobotConnection
 try:
     from ConnectionFxcm import RobotConnection
     ROBOT_CONNECTION_AVAILABLE = True
@@ -18,25 +17,17 @@ except ImportError:
 
 
 class Price:
-    """
-    Main class for price handling, indicators and trading operations.
-    """
     
-    # Global signal constants for the class
     SIGNAL_BUY = 1
     SIGNAL_SELL = -1
     SIGNAL_NEUTRAL = 0
 
     def __init__(self, days: int, instrument: str, timeframe: str):
-        """
-        Initialize the Price object.
-        """
         self.instrument = instrument
         self.timeframe = timeframe
         self.pricedata = None
         self.days = days
         
-        # Initialize robot connection if available
         if ROBOT_CONNECTION_AVAILABLE:
             self.robotconnection = RobotConnection()
             self.connection = self.robotconnection.getConnection()
@@ -46,12 +37,7 @@ class Price:
             
         self._setup_logging()
 
-    # ============================================================================
-    # LOGGING METHODS
-    # ============================================================================
-
     def _create_log_handlers(self, log_file):
-        """Create handlers for logging"""
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.INFO)
         console_handler = logging.StreamHandler()
@@ -62,9 +48,6 @@ class Price:
         return file_handler, console_handler
 
     def _setup_logging(self):
-        """
-        Configure the logging system so each instrument has its own log file.
-        """
         if not os.path.exists('logs'):
             os.makedirs('logs')
         self.logger = logging.getLogger(f'Price_{self.instrument}')
@@ -76,7 +59,6 @@ class Price:
             self.logger.addHandler(console_handler)
 
     def _normalize_log_message(self, message: str) -> str:
-        """Normalize log messages by removing special characters"""
         replacements = {
             '•': '*', 'ó': 'o', 'ñ': 'n', 'á': 'a', 'é': 'e', 'í': 'i', 'ú': 'u',
             'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Ñ': 'N'
@@ -86,7 +68,6 @@ class Price:
         return message
 
     def _log_message(self, message: str, level: str = 'info'):
-        """Log a message"""
         if isinstance(message, str):
             message = message.encode('utf-8').decode('utf-8')
         message = self._normalize_log_message(message)
@@ -97,16 +78,8 @@ class Price:
         elif level == 'warning':
             self.logger.warning(message)
 
-    # ============================================================================
-    # DATA ACQUISITION AND PROCESSING METHODS
-    # ============================================================================
-
     def get_price_data(self, instrument: str, timeframe: str, days: int, connection) -> pd.DataFrame:
-        """
-        Get and save price data, calculate indicators and signals.
-        """
         try:
-            # Check if there's an open operation for the current instrument (BUY and SELL)
             exists_buy = self.existingOperation(instrument, 'B')
             exists_sell = self.existingOperation(instrument, 'S')
             print(f"DEBUG: BUY operation exists for {instrument}: {exists_buy}")
@@ -116,13 +89,11 @@ class Price:
             date_from = europe_London_datetime - dt.timedelta(days=days)
             date_to = europe_London_datetime
             
-            # Get historical data
             history = connection.get_history(instrument, timeframe, date_from, date_to)
             
-            # Validate that we received data - use explicit length check to avoid NumPy array issues
             if history is None or len(history) == 0:
                 self._log_message(f"No historical data received for {instrument} {timeframe}", level='error')
-                return pd.DataFrame()  # Return empty DataFrame instead of None
+                return pd.DataFrame()
             
             current_unit, _ = connection.parse_timeframe(timeframe)
             
@@ -132,7 +103,6 @@ class Price:
             
             pricedata = pd.DataFrame(history, columns=["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
             
-            # Validate DataFrame structure
             if pricedata.empty:
                 self._log_message(f"Empty DataFrame created for {instrument} {timeframe}", level='error')
                 return pd.DataFrame()
@@ -150,10 +120,8 @@ class Price:
             df['date'] = df['date'].astype(str).str.replace('-', '').str.replace(':', '').str.replace(' ', '').str[:-2]
             df['date'] = df['date'].apply(lambda x: int(x))
             
-            # Process indicators
             self.pricedata = self.set_indicators(df)
             
-            # Validate processed data
             if self.pricedata is None or self.pricedata.empty:
                 self._log_message(f"Failed to process indicators for {instrument} {timeframe}", level='error')
                 return pd.DataFrame()
@@ -163,41 +131,27 @@ class Price:
             
         except Exception as e:
             self._log_message(f"Error in get_price_data for {instrument} {timeframe}: {str(e)}", level='error')
-            return pd.DataFrame()  # Return empty DataFrame instead of None
+            return pd.DataFrame()
 
     def save_price_data_file(self, pricedata: pd.DataFrame):
-        """Save the price DataFrame to a CSV file"""
         fileName = self.instrument.replace("/", "_") + "_" + self.timeframe + ".csv"
         pricedata.to_csv(fileName)
 
     def get_latest_price(self, instrument: str, BuySell: str) -> float:
-        """Get the latest price for the instrument"""
         if self.pricedata is not None and not self.pricedata.empty:
             return float(self.pricedata['bidclose'].iloc[-1])
         return None
 
-    # ============================================================================
-    # INDICATOR CALCULATION METHODS
-    # ============================================================================
-
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Set all indicators and signals for the DataFrame.
-        """
         try:
-            # Ensure basic columns exist
             self._ensure_basic_columns(df)
             
-            # Add median and trend
             df = self.add_median_and_trend(df)
             
-            # Calculate peaks with adaptive order
             df = self.calculate_peaks(df)
             
-            # Unifica zonas contrarian y trend following, y marca solo si se cumplen las 3 condiciones
             df = self._mark_trading_zones(df)
             
-            # Aplica la estrategia de señales usando solo las zonas unificadas
             df = self.apply_triggers_strategy(df)
             
             self._log_message(f"All indicators set successfully for {len(df)} rows")
@@ -208,7 +162,6 @@ class Price:
             return df
 
     def _ensure_basic_columns(self, df):
-        """Ensure all required columns exist"""
         required_columns = {
             'median_bidclose': 0,
             'median_trend': 'flat',
@@ -229,27 +182,21 @@ class Price:
                 self._log_message(f"Created missing column: {col}", level='warning')
 
     def add_median_and_trend(self, df: pd.DataFrame, window: int = 100) -> pd.DataFrame:
-        """Add moving median and median trend to the DataFrame with faster response"""
-        # Reduce window size for faster trend detection
         df['median_bidclose'] = df['bidclose'].rolling(window=window, center=True, min_periods=1).median()
         
-        # Add short-term trend for early detection
         df['short_trend'] = df['bidclose'].rolling(window=50, center=True, min_periods=1).mean()
         
-        # Calculate trend with faster response
         raw_trend = np.where(
             df['median_bidclose'].diff() > 0, 'going up',
             np.where(df['median_bidclose'].diff() < 0, 'going down', 'flat')
         )
         
-        # Add momentum indicator for early trend detection
-        df['momentum'] = df['bidclose'].diff(5)  # 5-period momentum
+        df['momentum'] = df['bidclose'].diff(5)
         
         trend_filled = []
         last_trend = None
         for i, t in enumerate(raw_trend):
             if t == 'flat' and last_trend is not None:
-                # Use momentum to predict trend change
                 if i > 0 and df['momentum'].iloc[i] > 0 and last_trend == 'going down':
                     trend_filled.append('going up')
                 elif i > 0 and df['momentum'].iloc[i] < 0 and last_trend == 'going up':
@@ -265,28 +212,21 @@ class Price:
         return df
 
     def calculate_peaks(self, df: pd.DataFrame, order: int = 50) -> pd.DataFrame:
-        """Calculate price peaks"""
         self._add_price_peaks(df, order)
         return df
 
     def _add_price_peaks(self, df, order):
-        """Add minimum and maximum peaks with adaptive order selection"""
         try:
-            # Adaptive order based on data characteristics
             optimal_order = self._calculate_optimal_order(df, order)
             
-            # Ensure optimal_order is an integer
             optimal_order = int(optimal_order)
             
-            # Calculate peaks with optimal order
             peaks_min_idx = signal.argrelextrema(df['bidclose'].values, np.less, order=optimal_order)[0]
             peaks_max_idx = signal.argrelextrema(df['bidclose'].values, np.greater, order=optimal_order)[0]
             
-            # Initialize columns
             df['peaks_min'] = 0
             df['peaks_max'] = 0
             
-            # Mark peaks
             df.loc[peaks_min_idx, 'peaks_min'] = 1
             df.loc[peaks_max_idx, 'peaks_max'] = 1
             
@@ -298,21 +238,18 @@ class Price:
             df['peaks_max'] = 0
 
     def _calculate_optimal_order(self, df, base_order):
-        """Calculate optimal order with faster response for recent data"""
         try:
             data_length = len(df)
             
-            # Reduce order for faster peak detection
             if data_length < 500:
-                optimal_order = max(5, base_order // 4)  # 12-13
+                optimal_order = max(5, base_order // 4)
             elif data_length < 1000:
-                optimal_order = max(8, base_order // 3)  # ~17
+                optimal_order = max(8, base_order // 3)
             elif data_length > 3000:
-                optimal_order = min(50, base_order)  # 50 instead of 75
+                optimal_order = min(50, base_order)
             else:
-                optimal_order = base_order // 2  # 25 instead of 50
+                optimal_order = base_order // 2
             
-            # Ensure reasonable bounds and convert to int
             optimal_order = int(max(3, min(optimal_order, data_length // 8)))
             
             self._log_message(f"Data length: {data_length}, Optimal order: {optimal_order}")
@@ -323,8 +260,6 @@ class Price:
             return int(base_order // 2)
 
     def _mark_trading_zones(self, df):
-        """Mark trade opening zones based on price action and trend conditions"""
-        # Ensure required columns exist with explicit initialization
         if 'peaks_min' not in df.columns:
             df['peaks_min'] = 0
         if 'peaks_max' not in df.columns:
@@ -340,170 +275,111 @@ class Price:
         if 'trade_trend_zone_sell' not in df.columns:
             df['trade_trend_zone_sell'] = 0
 
-        # Get tolerance value from configuration
         config = ConfigurationOperation()
-        tolerance = getattr(config, 'tolerance_peaks', 10)  # Default to 10 if not set
+        tolerance = getattr(config, 'tolerance_peaks', 10)
 
-        # Initialize trading zones
         df['trade_zone_buy'] = 0
         df['trade_zone_sell'] = 0
         df['tolerance_zone_buy'] = 0
         df['tolerance_zone_sell'] = 0
 
-        # Mark trend zones based on median trend
         df.loc[df['median_trend'].values == 'going up', 'trade_trend_zone_buy'] = 1
         df.loc[df['median_trend'].values == 'going down', 'trade_trend_zone_sell'] = 1
 
-        # ============================================================================
-        # TREND FOLLOWING STRATEGY (Seguir la Tendencia)
-        # ============================================================================
-        
-        # Trend Following BUY: minimum peaks in uptrend (comprar en mínimos cuando sube)
-        trend_following_buy_points = df[
+        buy_points = df[
             (df['peaks_min'].values == 1) & 
             (df['median_trend'].values == 'going up')
         ].index
 
-        # Trend Following SELL: maximum peaks in uptrend (vender en máximos cuando sube)
-        trend_following_sell_points = df[
-            (df['peaks_max'].values == 1) & 
-            (df['median_trend'].values == 'going up')
-        ].index
-
-        # ============================================================================
-        # REVERSAL STRATEGY (Detectar Reversiones Reales)
-        # ============================================================================
-        
-        # Reversal BUY: maximum peaks in downtrend (comprar en máximos cuando baja - reversión alcista)
-        reversal_buy_points = df[
+        sell_points = df[
             (df['peaks_max'].values == 1) & 
             (df['median_trend'].values == 'going down')
         ].index
 
-        # Reversal SELL: minimum peaks in uptrend (vender en mínimos cuando sube - reversión bajista)
-        reversal_sell_points = df[
-            (df['peaks_min'].values == 1) & 
-            (df['median_trend'].values == 'going up')
-        ].index
-
-        # ============================================================================
-        # COMBINE STRATEGIES (priorizar reversiones sobre trend following)
-        # ============================================================================
-        
-        # Combine BUY signals (trend following + reversal)
-        all_buy_points = trend_following_buy_points.union(reversal_buy_points)
-        
-        # Combine SELL signals (trend following + reversal)
-        all_sell_points = trend_following_sell_points.union(reversal_sell_points)
-
-        # ============================================================================
-        # MARK TRADING ZONES
-        # ============================================================================
-        
-        # Mark tolerance zones and trading zones for BUY signals
-        for idx in all_buy_points:
+        for idx in buy_points:
             start_idx = max(0, idx - tolerance)
             end_idx = min(len(df), idx + tolerance + 1)
-            # Mark the tolerance zone (área donde se puede entrar)
             df.loc[start_idx:end_idx, 'tolerance_zone_buy'] = 1
-            # Mark the trading zone SOLO en el pico exacto
             df.loc[idx, 'trade_zone_buy'] = 1
 
-        # Mark tolerance zones and trading zones for SELL signals
-        for idx in all_sell_points:
+        for idx in sell_points:
             start_idx = max(0, idx - tolerance)
             end_idx = min(len(df), idx + tolerance + 1)
-            # Mark the tolerance zone (área donde se puede entrar)
             df.loc[start_idx:end_idx, 'tolerance_zone_sell'] = 1
-            # Mark the trading zone SOLO en el pico exacto
             df.loc[idx, 'trade_zone_sell'] = 1
 
-        # Log the results
         self._log_message(f"Trading zones marked with tolerance: {tolerance} candles around condition points")
-        self._log_message(f"Trend Following - Buy (mínimos en subida): {len(trend_following_buy_points)}, Sell (máximos en subida): {len(trend_following_sell_points)}")
-        self._log_message(f"Reversal - Buy (máximos en bajada): {len(reversal_buy_points)}, Sell (mínimos en subida): {len(reversal_sell_points)}")
-        self._log_message(f"Total - Buy: {len(all_buy_points)}, Sell: {len(all_sell_points)}")
-
-        # Add early trend detection for recent data
-        recent_data = df.tail(100)  # Last 100 candles
+        self._log_message(f"BUY signals (mínimos en tendencia alcista): {len(buy_points)}")
+        self._log_message(f"SELL signals (máximos en tendencia bajista): {len(sell_points)}")
         
-        # Check for early trend reversal in recent data
+        self._log_message(f"DEBUG: trade_zone_buy column exists: {'trade_zone_buy' in df.columns}")
+        self._log_message(f"DEBUG: trade_zone_sell column exists: {'trade_zone_sell' in df.columns}")
+        self._log_message(f"DEBUG: trade_zone_buy values > 0: {(df['trade_zone_buy'] > 0).sum()}")
+        self._log_message(f"DEBUG: trade_zone_sell values > 0: {(df['trade_zone_sell'] > 0).sum()}")
+
+        recent_data = df.tail(100)
+        
         if len(recent_data) >= 20:
             recent_momentum = recent_data['bidclose'].diff(5).tail(10).mean()
             current_trend = df['median_trend'].iloc[-1]
             
-            # Early trend detection
             if recent_momentum > 0 and current_trend == 'going down':
-                # Potential reversal to uptrend
                 df.loc[df.index[-10:], 'trade_trend_zone_buy'] = 1
                 self._log_message("Early uptrend detection in recent data")
             elif recent_momentum < 0 and current_trend == 'going up':
-                # Potential reversal to downtrend
                 df.loc[df.index[-10:], 'trade_trend_zone_sell'] = 1
                 self._log_message("Early downtrend detection in recent data")
 
         return df
 
     def apply_triggers_strategy(self, df: pd.DataFrame, config=None) -> pd.DataFrame:
-        """Apply the triggers strategy to generate signals"""
         if config is None:
             from ConfigurationOperation import ConfigurationOperation
             config = ConfigurationOperation()
         signal_col = config.signal_col if hasattr(config, 'signal_col') else 'signal'
         df[signal_col] = self.SIGNAL_NEUTRAL
+        
+        self._log_message(f"DEBUG: Applying triggers strategy - trade_zone_buy exists: {'trade_zone_buy' in df.columns}")
+        self._log_message(f"DEBUG: Applying triggers strategy - trade_zone_sell exists: {'trade_zone_sell' in df.columns}")
+        
+        buy_signals = 0
+        sell_signals = 0
+        
         for i in range(len(df)):
             if df['trade_zone_buy'].iloc[i] == 1:
                 self._set_signal(df, i, signal_col, self.SIGNAL_BUY)
+                buy_signals += 1
             elif df['trade_zone_sell'].iloc[i] == 1:
                 self._set_signal(df, i, signal_col, self.SIGNAL_SELL)
+                sell_signals += 1
+        
+        self._log_message(f"DEBUG: Generated {buy_signals} buy signals and {sell_signals} sell signals")
         return df
 
     def _set_signal(self, df, idx, signal_col, value):
-        """Set a signal in the DataFrame"""
         df.iloc[idx, df.columns.get_loc(signal_col)] = value
 
-    # ============================================================================
-    # TRADE MANAGEMENT METHODS
-    # ============================================================================
-
     def triggers_trades(self, df: pd.DataFrame, config=None):
-        """
-        Main method to process trade opening signals.
-        
-        This method orchestrates the entire trade signal processing workflow:
-        1. Validates input data and configuration
-        2. Checks tolerance zone conditions
-        3. Processes trade signals if conditions are met
-        
-        Args:
-            df: DataFrame with price data and indicators
-            config: Configuration object (optional)
-        """
         try:
-            # Step 1: Initialize configuration and validate data
             config = self._initialize_trade_config(config)
             if not self._validate_data_for_trading(df):
                 return
             
-            # Step 2: Check tolerance zone conditions
             if not self._check_tolerance_zone_conditions(df):
                 return
             
-            # Step 3: Process trade signals
             self._process_trade_signals(df, config)
             
         except Exception as e:
             self._log_message(f"Error in triggers_trades: {e}", level='error')
 
     def _initialize_trade_config(self, config):
-        """Initialize and return configuration for trading"""
         if config is None:
             from ConfigurationOperation import ConfigurationOperation
             config = ConfigurationOperation()
         return config
 
     def _validate_data_for_trading(self, df):
-        """Validate that we have enough data for trading analysis"""
         if df is None or df.empty:
             self._log_message("No data available for trading analysis", level='warning')
             return False
@@ -515,21 +391,13 @@ class Price:
         return True
 
     def _check_tolerance_zone_conditions(self, df):
-        """
-        Check if the penultimate candle is outside tolerance zones.
+        penultimate_candle = df.iloc[-2]
         
-        Returns:
-            bool: True if conditions are met for signal processing
-        """
-        penultimate_candle = df.iloc[-2]  # Penúltima vela
-        
-        # Log penultimate candle info for debugging
         self._log_message(
             f"Analyzing penultimate candle - Date: {penultimate_candle.get('date', 'N/A')}, "
             f"Price: {penultimate_candle.get('bidclose', 'N/A')}"
         )
         
-        # Check if penultimate candle is outside tolerance zones
         outside_tolerance = self._is_candle_outside_tolerance_zones(penultimate_candle)
         
         if outside_tolerance:
@@ -540,27 +408,13 @@ class Price:
             return False
 
     def _process_trade_signals(self, df, config):
-        """
-        Process trade signals from recent data, excluding the last 8 candles.
-        
-        This exclusion helps avoid signals based on very recent unconfirmed data
-        and ensures more reliable signal processing.
-        
-        Args:
-            df: DataFrame with price data and indicators
-            config: Configuration object
-        """
         signal_col = config.signal_col if hasattr(config, 'signal_col') else 'signal'
         
-        # Simple approach: exclude last 8 candles from the last candle
-        # From last candle (-1), go back 8 more positions: (-9, -1)
         recent_range = (-9, -1)
         
-        # Use config if available, otherwise use the simple adjusted range
         if hasattr(config, 'recent_range'):
             recent_range = config.recent_range
         
-        # Extract recent data for signal analysis (excluding last 8 candles)
         recent_rows = df.iloc[recent_range[0]:recent_range[1]]
         
         self._log_message(
@@ -569,68 +423,43 @@ class Price:
             f"with {len(recent_rows)} candles"
         )
         
-        # Handle the trade signals
         self._handle_trade_signals(recent_rows, signal_col)
 
     def _is_candle_outside_tolerance_zones(self, candle):
-        """Check if a candle is outside all tolerance zones"""
-        # Check if candle is outside both buy and sell tolerance zones
         outside_buy_tolerance = candle.get('tolerance_zone_buy', 0) == 0
         outside_sell_tolerance = candle.get('tolerance_zone_sell', 0) == 0
         
-        # Log the tolerance zone status for debugging
         self._log_message(f"Tolerance check - Buy zone: {candle.get('tolerance_zone_buy', 0)}, Sell zone: {candle.get('tolerance_zone_sell', 0)}")
         
-        # Return True if candle is outside both tolerance zones
         return outside_buy_tolerance and outside_sell_tolerance
 
     def _handle_trade_signals(self, recent_rows, signal_col):
-        """
-        Handle recent trade signals by analyzing buy and sell signals.
-        
-        Args:
-            recent_rows: DataFrame with recent price data
-            signal_col: Column name containing signal values
-        """
-        # Extract buy and sell signals from recent data
         buy_signals = recent_rows[recent_rows[signal_col] == self.SIGNAL_BUY]
         sell_signals = recent_rows[recent_rows[signal_col] == self.SIGNAL_SELL]
         
-        # Log signal summary
         self._log_message(f"Signal analysis - Buy signals: {len(buy_signals)}, Sell signals: {len(sell_signals)}")
         
-        # Process buy signals if any exist
         if not buy_signals.empty:
             last_buy = buy_signals.iloc[-1]
             self._log_message(f"Processing BUY signal at date: {last_buy.get('date', 'N/A')}")
             self._process_buy_signal(last_buy)
         
-        # Process sell signals if any exist
         if not sell_signals.empty:
             last_sell = sell_signals.iloc[-1]
             self._log_message(f"Processing SELL signal at date: {last_sell.get('date', 'N/A')}")
             self._process_sell_signal(last_sell)
 
     def _process_buy_signal(self, last_buy):
-        """
-        Process a buy signal by closing existing sell operations and opening new buy operations.
-        
-        Args:
-            last_buy: DataFrame row containing the buy signal data
-        """
         buy_date = last_buy['date']
         buy_price = last_buy['bidclose']
         
         self._log_message(f"Processing BUY signal - Date: {buy_date}, Price: {buy_price}")
         
-        # Step 1: Close existing SELL operations if any
         self._close_existing_sell_operations(buy_date, buy_price)
         
-        # Step 2: Open new BUY operation if none exists
         self._open_buy_operation(buy_date, buy_price)
 
     def _close_existing_sell_operations(self, signal_date, signal_price):
-        """Close existing SELL operations when a BUY signal is detected"""
         if self.existingOperation(instrument=self.instrument, BuySell="S"):
             self._log_message(
                 f"[CLOSE SELL] Reason: BUY signal detected | Date: {signal_date} | "
@@ -641,7 +470,6 @@ class Price:
             self._log_message(f"No existing SELL operations to close")
 
     def _open_buy_operation(self, signal_date, signal_price):
-        """Open a new BUY operation if none exists"""
         if not self.existingOperation(instrument=self.instrument, BuySell="B"):
             self._log_message(
                 f"[OPEN BUY] Reason: BUY signal detected | Date: {signal_date} | "
@@ -655,25 +483,16 @@ class Price:
             )
 
     def _process_sell_signal(self, last_sell):
-        """
-        Process a sell signal by closing existing buy operations and opening new sell operations.
-        
-        Args:
-            last_sell: DataFrame row containing the sell signal data
-        """
         sell_date = last_sell['date']
         sell_price = last_sell['bidclose']
         
         self._log_message(f"Processing SELL signal - Date: {sell_date}, Price: {sell_price}")
         
-        # Step 1: Close existing BUY operations if any
         self._close_existing_buy_operations(sell_date, sell_price)
         
-        # Step 2: Open new SELL operation if none exists
         self._open_sell_operation(sell_date, sell_price)
 
     def _close_existing_buy_operations(self, signal_date, signal_price):
-        """Close existing BUY operations when a SELL signal is detected"""
         if self.existingOperation(instrument=self.instrument, BuySell="B"):
             self._log_message(
                 f"[CLOSE BUY] Reason: SELL signal detected | Date: {signal_date} | "
@@ -684,7 +503,6 @@ class Price:
             self._log_message(f"No existing BUY operations to close")
 
     def _open_sell_operation(self, signal_date, signal_price):
-        """Open a new SELL operation if none exists"""
         if not self.existingOperation(instrument=self.instrument, BuySell="S"):
             self._log_message(
                 f"[OPEN SELL] Reason: SELL signal detected | Date: {signal_date} | "
@@ -698,14 +516,6 @@ class Price:
             )
 
     def triggers_trades_close(self, df: pd.DataFrame, config=None):
-        """
-        Process trade closing signals.
-        
-        Args:
-            df: DataFrame with price data and indicators
-            config: Configuration object (optional)
-        """
-        # Validate input DataFrame
         if df is None or df.empty:
             self._log_message("No data available for trade closing analysis", level='warning')
             return
@@ -717,7 +527,6 @@ class Price:
         recent_close_range = config.recent_close_range if hasattr(config, 'recent_close_range') else (-7, -4)
         
         try:
-            # Validate that we have enough data for the range
             if len(df) < abs(recent_close_range[0]):
                 self._log_message(f"Insufficient data for closing analysis. Need {abs(recent_close_range[0])} rows, have {len(df)}", level='warning')
                 return
@@ -729,7 +538,6 @@ class Price:
             self._log_message(f"Error in triggers_trades_close: {e}", level='error')
 
     def _handle_close_signals(self, recent_rows):
-        """Handle closing signals"""
         peaks_max = recent_rows[recent_rows['peaks_max'] == 1]
         if not peaks_max.empty:
             last_peak = peaks_max.iloc[-1]
@@ -741,7 +549,6 @@ class Price:
             self._close_sell_on_peak(last_peak)
 
     def _close_buy_on_peak(self, last_peak):
-        """Close a BUY operation at a maximum peak"""
         date = last_peak['date']
         price = last_peak['bidclose']
         
@@ -752,7 +559,6 @@ class Price:
             self.CloseOperation(instrument=self.instrument, BuySell="B")
 
     def _close_sell_on_peak(self, last_peak):
-        """Close a SELL operation at a minimum peak"""
         date = last_peak['date']
         price = last_peak['bidclose']
         
@@ -762,12 +568,7 @@ class Price:
             )
             self.CloseOperation(instrument=self.instrument, BuySell="S")
 
-    # ============================================================================
-    # TRADING OPERATION METHODS
-    # ============================================================================
-
     def existingOperation(self, instrument: str, BuySell: str) -> bool:
-        """Check if an open operation exists for the instrument and type"""
         existOperation = False
         try:
             trades_table = self.connection.get_table(self.connection.TRADES)
@@ -795,7 +596,6 @@ class Price:
             return existOperation
 
     def CloseOperation(self, instrument: str, BuySell: str):
-        """Close an existing operation for the instrument and Buy/Sell type"""
         try:
             accounts_response_reader = self.connection.get_table_reader(self.connection.ACCOUNTS)
             accountId = None
@@ -823,12 +623,6 @@ class Price:
             self._log_message(f"Error closing operation: {e}", level='error')
 
     def createEntryOrder(self, str_buy_sell: str = None):
-        """
-        Create an entry order (buy or sell) for the configured instrument.
-        
-        Args:
-            str_buy_sell: 'B' for buy, 'S' for sell
-        """
         args = self.robotconnection.args
         common = self.robotconnection.common
         fxcorepy = self.robotconnection.fxcorepy
@@ -842,7 +636,6 @@ class Price:
         peggedlimit = args.peggedlimit
         peglimittype = args.peglimittype
         
-        # Validate pegged stop/limit parameters
         if peggedstop:
             if not pegstoptype or pegstoptype not in ['O', 'M']:
                 return
@@ -862,7 +655,6 @@ class Price:
             peglimittype = peglimittype.upper()
         
         try:
-            # Get account and offer
             account = common.get_account(self.connection, str_account)
             if not account:
                 raise Exception(f"The account '{str_account}' is not valid")
@@ -872,13 +664,11 @@ class Price:
             if offer is None:
                 raise Exception(f"The instrument '{str_instrument}' is not valid")
             
-            # Calculate amount
             login_rules = self.connection.login_rules
             trading_settings_provider = login_rules.trading_settings_provider
             base_unit_size = trading_settings_provider.get_base_unit_size(str_instrument, account)
             amount = base_unit_size * str_lots
             
-            # Configure order
             entry = fxcorepy.Constants.Orders.TRUE_MARKET_OPEN
             if str_buy_sell == 'B':
                 stopv = -stop
@@ -889,7 +679,6 @@ class Price:
                 limitv = -limit
                 str_buy_sell = fxcorepy.Constants.SELL
             
-            # Create request based on configuration
             if peggedstop:
                 if peggedlimit:
                     request = self.connection.create_order_request(
@@ -943,14 +732,7 @@ class Price:
         except Exception as e:
             self._log_message(f"Error opening operation: {e}", level='error')
 
-
-
-    # ============================================================================
-    # AUXILIARY METHODS
-    # ============================================================================
-
     def get_offer_id(self, instrument: str) -> str:
-        """Get the offer_id for an instrument"""
         try:
             offer = self.robotconnection.common.get_offer(self.connection, instrument)
             return offer.offer_id if offer else None
@@ -959,7 +741,6 @@ class Price:
             return None
 
     def get_trade_amount(self, trade_id: str) -> float:
-        """Get the amount of a specific operation"""
         try:
             trades_table = self.connection.get_table(self.connection.TRADES)
             for trade in trades_table:
