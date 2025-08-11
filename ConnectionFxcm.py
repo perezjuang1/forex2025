@@ -1,10 +1,10 @@
-from ConfigurationOperation import ConfigurationOperation
+from ConfigurationOperation import TradingConfig
 
 from forexconnect import fxcorepy, ForexConnect, Common
 
 class RobotConnection:
     def __init__(self):
-        self.args = ConfigurationOperation()
+        self.args = TradingConfig()
         self.common = Common()
         self.fxcorepy = fxcorepy
 

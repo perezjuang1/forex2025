@@ -1,27 +1,27 @@
 from ConnectionFxcm import RobotConnection
-from Price import Price
+from PriceAnalyzer import PriceAnalyzer
 import datetime as dt
 import time
 import numpy as np
 import traceback
 import threading
 import multiprocessing
-from ConfigurationOperation import ConfigurationOperation
+from ConfigurationOperation import TradingConfig
 
-class Trading:
+class TradingSystem:
     def __init__(self, days, timeframe=None, instrument="EUR/USD"):
         if timeframe is None:
-            timeframe = ConfigurationOperation.timeframe
+            timeframe = TradingConfig.get_timeframe()
         self.timeframe = timeframe
         self.instrument = instrument
         self.days = days
         
-        # Initialize Price object which handles connection internally
-        self._robot_price = Price(days, self.instrument, self.timeframe)
+        # Initialize PriceAnalyzer object which handles connection internally
+        self.priceAnalyzer = PriceAnalyzer(days, self.instrument, self.timeframe)
         
         # Get connection from Price object to avoid duplication
-        self.connection = self._robot_price.connection
-        self.robotconnection = self._robot_price.robotconnection
+        self.connection = self.priceAnalyzer.connection
+        self.robotconnection = self.priceAnalyzer.robotconnection
 
     def __del__(self):
         print('Object gets destroyed')
@@ -33,31 +33,38 @@ class Trading:
         while True:            
             currenttime = dt.datetime.now()  
             if self.timeframe == "m1" and currenttime.second == 0:
-                self.operation_detection( timeframe=self.timeframe)    
+                self.operation_detection(timeframe=self.timeframe)    
                 time.sleep(1)                    
             elif self.timeframe == "m5" and currenttime.second == 0 and currenttime.minute % 5 == 0:
-                self.operation_detection( timeframe=self.timeframe)
+                self.operation_detection(timeframe=self.timeframe)
                 time.sleep(240)
             elif self.timeframe == "m15" and currenttime.second == 0 and currenttime.minute % 15 == 0:
-                self.operation_detection( timeframe=self.timeframe)
+                self.operation_detection(timeframe=self.timeframe)
                 time.sleep(840)
             elif self.timeframe == "m30" and currenttime.second == 0 and currenttime.minute % 30 == 0:
-                self.operation_detection( timeframe=self.timeframe)
+                self.operation_detection(timeframe=self.timeframe)
                 time.sleep(1740)
             elif self.timeframe == "H1" and currenttime.second == 0 and currenttime.minute == 0:
-                self.operation_detection( timeframe=self.timeframe)
+                self.operation_detection(timeframe=self.timeframe)
                 time.sleep(3540)
             time.sleep(1)
 
     def operation_detection(self, timeframe): 
         try:
-            print(f"[LOG] Iniciando operación_detection - timeframe: {timeframe} - " + str(dt.datetime.now())  )
-            df = self._robot_price.get_price_data(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
-            df = self._robot_price.triggers_trades(df)
-            df = self._robot_price.triggers_trades_close(df)
+            print(f"[LOG] Starting operation_detection - timeframe: {timeframe} - {dt.datetime.now()}")
+            df = self.priceAnalyzer.get_price_data(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
+            df = self.priceAnalyzer.set_indicators(df)
+            df = self.priceAnalyzer.set_signals_to_trades(df)      
+            self.priceAnalyzer.triggers_trades_open(df)
+            self.priceAnalyzer.triggers_trades_close(df)
+            
+            # Save the processed data with signals to CSV
+            if not df.empty:
+                self.priceAnalyzer.save_price_data_file(df)
+            
             print(df)
         except Exception as e:
-            print("Exception: " + str(e))
+            print(f"Exception in operation_detection: {str(e)}")
             print(traceback.format_exc())
             raise 
 
@@ -66,7 +73,7 @@ def run_trading_for_instrument(instrument):
         trading = None
         try:
             time.sleep(5)
-            trading = Trading(days=7, instrument=instrument)
+            trading = TradingSystem(days=7, instrument=instrument)
             trading.start_trade_monitor()
         except Exception as e:
             print(f"Fatal error occurred for {instrument}. Restarting Trading session...")
@@ -75,18 +82,18 @@ def run_trading_for_instrument(instrument):
             print("20 seconds to restart...")
             time.sleep(20)
 
-def run_plotter_for_instrument(instrument):
-    """Run the plotter for a specific instrument"""
+def run_visualizer_for_instrument(instrument):
+    """Run the visualizer for a specific instrument"""
     try:
-        from Plotter2025 import run_single_plotter
-        run_single_plotter()
+        from DataVisualizer import run_single_visualizer
+        run_single_visualizer()
     except Exception as e:
-        print(f"Error running plotter: {str(e)}")
+        print(f"Error running visualizer: {str(e)}")
         print(traceback.format_exc())
 
 if __name__ == "__main__":
-    from ConfigurationOperation import ConfigurationOperation
-    instruments = ConfigurationOperation.instruments
+    from ConfigurationOperation import TradingConfig
+    instruments = TradingConfig.get_instruments()
     
     print("Starting Trading and Plotting System...")
     print(f"Instruments: {instruments}")
@@ -100,19 +107,18 @@ if __name__ == "__main__":
         trading_threads.append(t)
         print(f"Started trading thread for {instrument}")
     
-    # Start single plotter process
-    print("Starting single window plotter...")
-    plotter_process = multiprocessing.Process(target=run_plotter_for_instrument, args=(None,))
-    plotter_process.start()
+    # Start single visualizer process
+    print("Starting single window visualizer...")
+    visualizer_process = multiprocessing.Process(target=run_visualizer_for_instrument, args=(None,))
+    visualizer_process.start()
     
     try:
-        # Wait for plotter process to complete
-        plotter_process.join()
+        # Wait for visualizer process to complete
+        visualizer_process.join()
     except KeyboardInterrupt:
         print("\nShutting down...")
-        # Terminate plotter process
-        if plotter_process.is_alive():
-            plotter_process.terminate()
-            plotter_process.join()
-        print("All processes terminated.")
-
+        # Terminate visualizer process
+        if visualizer_process.is_alive():
+            visualizer_process.terminate()
+            visualizer_process.join()
+        print("All processes terminated.") 
