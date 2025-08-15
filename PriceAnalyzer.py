@@ -217,22 +217,48 @@ class PriceAnalyzer:
             
             # Calcular medianas (precio, min, max)
             df = self._add_median_indicators(df)
+            
+            # Calcular EMA200 y tendencia
+            df = self._calculate_trend_indicators(df)
      
-            self._log_message(f"All indicators calculated successfully for {len(df)} rows: peaks and medians")
+            self._log_message(f"All indicators calculated successfully for {len(df)} rows: peaks, medians, and trend indicators")
             return df
             
         except Exception as e:
             self._log_message(f"Error setting indicators: {str(e)}", 'error')
             return df
 
-    def calculate_peaks(self, df: pd.DataFrame, order: int = 10) -> pd.DataFrame:
+    def _calculate_trend_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate EMA200 and trend direction based on price vs EMA200"""
+        try:
+            # Calculate EMA200
+            df['ema200'] = df['bidclose'].ewm(span=200).mean()
+            
+            # Calculate trend based on price vs EMA200
+            def tendencia(row):
+                if row['bidclose'] > row['ema200']:
+                    return 'BULL'
+                elif row['bidclose'] < row['ema200']:
+                    return 'BEAR'
+                return 'FLAT'
+            
+            df['trend'] = df.apply(tendencia, axis=1)
+            
+            self._log_message(f"Trend indicators calculated: EMA200 and trend direction")
+            return df
+            
+        except Exception as e:
+            self._log_message(f"Error calculating trend indicators: {e}", level='error')
+            return df
+
+    def calculate_peaks(self, df: pd.DataFrame, order: int = 5) -> pd.DataFrame:
         self._add_price_peaks(df, order)
         return df
 
     def _add_price_peaks(self, df, order):        
 
-            peaks_min_idx = signal.argrelextrema(df['bidclose'].values, np.less, order=order)[0]
-            peaks_max_idx = signal.argrelextrema(df['bidclose'].values, np.greater, order=order)[0]
+            peaks_min_idx = signal.argrelextrema(df['bidclose'].values, np.less_equal, order=order)[0]
+            peaks_max_idx = signal.argrelextrema(df['bidclose'].values, np.greater_equal, order=order)[0]
             
             df['peaks_min'] = 0
             df['peaks_max'] = 0
@@ -258,10 +284,7 @@ class PriceAnalyzer:
             df['min_low_median'] = self._fill_na_with_trend(df['min_low_median'])
             df['max_high_median'] = self._fill_na_with_trend(df['max_high_median'])
             
-            # Calcular zonas donde las medianas están más distanciadas
-            df = self._calculate_most_distanced_median_zones(df)
-            
-            self._log_message(f"Median indicators calculated: price_median, min_low_median, max_high_median, near_median_zones, distanced_median_zones (window: {window})")
+            self._log_message(f"Median indicators calculated: price_median, min_low_median, max_high_median, near_median_zones (window: {window})")
             return df
             
         except Exception as e:
@@ -321,55 +344,10 @@ class PriceAnalyzer:
             # En caso de error, usar el método original
             return series.fillna(method='ffill').fillna(method='bfill')
     
-    def _calculate_most_distanced_median_zones(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate vertical zones where max_high_median and min_low_median are most distanced from each other"""
-        try:
-            # Inicializar columna para zonas de medianas más distanciadas
-            df['distanced_median_zones'] = 0
-            
-            # Calcular la distancia entre max_high_median y min_low_median en cada punto
-            df['median_distance'] = df['max_high_median'] - df['min_low_median']
-            
-            # Calcular la distancia promedio para todo el dataset
-            avg_distance = df['median_distance'].mean()
-            
-            # Calcular la desviación estándar para determinar qué se considera "más distanciado"
-            std_distance = df['median_distance'].std()
-            
-            # Definir umbral para considerar zonas como "más distanciadas" (por ejemplo, 1.5 desviaciones estándar por encima del promedio)
-            threshold = avg_distance + (1.0 * std_distance)
-            
-            # Marcar zonas donde la distancia está por encima del umbral
-            distanced_zones = df['median_distance'] > threshold
-            
-            # Aplicar las zonas marcadas al DataFrame
-            df.loc[distanced_zones, 'distanced_median_zones'] = 1
-            
-            # Contar zonas encontradas
-            distanced_count = df['distanced_median_zones'].sum()
-            total_rows = len(df)
-            
-            self._log_message(f"Most distanced median zones calculated: {distanced_count} zones out of {total_rows} total rows (threshold: {threshold:.4f}, avg: {avg_distance:.4f}, std: {std_distance:.4f})")
-            
-            return df
-            
-        except Exception as e:
-            self._log_message(f"Error calculating most distanced median zones: {e}", level='error')
-            # En caso de error, inicializar columnas con ceros
-            df['distanced_median_zones'] = 0
-            df['median_distance'] = 0
-            return df
-    
 
-
-
-
-
-    
-
-    
+        
     def set_signals_to_trades(self, df: pd.DataFrame, config=None) -> pd.DataFrame:
-        """Signal generation using only peaks where medians are completely separated"""
+        """Signal generation using only peaks where medians are completely separated and signals match trend"""
         self._log_message(f"Setting signals to trades for {len(df)} rows")
         
         if config is None:
@@ -379,33 +357,37 @@ class PriceAnalyzer:
         signal_col = config.signal_col if hasattr(config, 'signal_col') else 'signal'
         df[signal_col] = self.SIGNAL_NEUTRAL
         
-        self._log_message(f"Using distanced-median peak-based signal generation")
+        self._log_message(f"Using peak-based signal generation with trend validation")
         
         buy_signals = 0
         sell_signals = 0
         
         for i in range(len(df)):
             # === CONDICIONES DE COMPRA ===
-            # Solo usar peaks mínimos donde las medianas estén completamente alejadas
+            # Solo peak mínimo y tendencia alcista
             buy_peak = df['peaks_min'].iloc[i] == 1
-            distanced_medians = df['distanced_median_zones'].iloc[i] == 1
+            bullish_trend = df['trend'].iloc[i] == 'BULL'
             
             # === CONDICIONES DE VENTA ===
-            # Solo usar peaks máximos donde las medianas estén completamente alejadas
+            # Solo peak máximo y tendencia bajista
             sell_peak = df['peaks_max'].iloc[i] == 1
+            bearish_trend = df['trend'].iloc[i] == 'BEAR'
             
-            # Generar señales solo en peaks donde las medianas estén completamente separadas
-            if buy_peak and distanced_medians:
+            # Generar señales solo cuando las condiciones se cumplan
+            if buy_peak and bullish_trend:
                 self._set_signal(df, i, signal_col, self.SIGNAL_BUY)
                 buy_signals += 1
-                self._log_message(f"BUY signal at index {i} - Peak minimum in distanced median zone detected")
+                self._log_message(f"BUY signal at index {i} - Peak minimum + bullish trend")
             
-            if sell_peak and distanced_medians:
+            if sell_peak and bearish_trend:
                 self._set_signal(df, i, signal_col, self.SIGNAL_SELL)
                 sell_signals += 1
-                self._log_message(f"SELL signal at index {i} - Peak maximum in distanced median zone detected")
+                self._log_message(f"SELL signal at index {i} - Peak maximum + bearish trend")
         
-        self._log_message(f"Generated {buy_signals} buy signals and {sell_signals} sell signals using distanced-median peak detection")
+        # Since signals are already filtered by trend, valid_signal equals signal
+        df['valid_signal'] = df[signal_col]
+        
+        self._log_message(f"Generated {buy_signals} buy signals and {sell_signals} sell signals - peaks with trend validation")
         return df
 
     def _set_signal(self, df, idx, signal_col, value):

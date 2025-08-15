@@ -40,6 +40,8 @@ class DataVisualizer:
         # Visibility flags for plot lines
         self.visibility_flags = {
             'price': tk.BooleanVar(value=True),
+            'ema200': tk.BooleanVar(value=True),
+            'trend_background': tk.BooleanVar(value=True),
             'price_median': tk.BooleanVar(value=True),
             'min_low_median': tk.BooleanVar(value=True),
             'max_high_median': tk.BooleanVar(value=True),
@@ -48,7 +50,7 @@ class DataVisualizer:
             'buy_signals': tk.BooleanVar(value=True),
             'sell_signals': tk.BooleanVar(value=True),
 
-            'distanced_median_zones': tk.BooleanVar(value=True)
+
         }
         
         # Setup GUI
@@ -187,6 +189,7 @@ class DataVisualizer:
         # Create checkboxes for each line type
         checkbox_configs = [
             ('price', 'Price Line'),
+            ('ema200', 'EMA200'),
             ('price_median', 'Price Median'),
             ('min_low_median', 'Min Low Median'),
             ('max_high_median', 'Max High Median'),
@@ -195,7 +198,7 @@ class DataVisualizer:
             ('buy_signals', 'Buy Signals (Diamond)'),
             ('sell_signals', 'Sell Signals (Diamond)'),
 
-            ('distanced_median_zones', 'Distanced Median Zones (Purple)')
+
         ]
         
         # Create checkboxes in a grid layout
@@ -301,6 +304,9 @@ class DataVisualizer:
         # Price line
         self.price_line, = self.ax.plot([], [], linestyle='-', color='#00ff00', label='Price', linewidth=1)
         
+        # EMA200 line
+        self.ema200_line, = self.ax.plot([], [], linestyle='-', color='#ff6b6b', label='EMA200', linewidth=2, alpha=0.8)
+        
         # Median lines
         self.price_median_line, = self.ax.plot([], [], linestyle='--', color='#ffd93d', label='Price Median', linewidth=1.5, alpha=0.7)
         self.min_low_median_line, = self.ax.plot([], [], linestyle='--', color='#6bcf7f', label='Min Low Median', linewidth=1.5, alpha=0.7)
@@ -323,7 +329,7 @@ class DataVisualizer:
 
         
         # Distanced median zones (vertical bars)
-        self.distanced_median_zones_bars = self.ax.axvspan(0, 0, alpha=0.6, color='#8a2be2', label='Distanced Median Zones')
+
         
         # Legend
         self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', 
@@ -435,6 +441,17 @@ class DataVisualizer:
         else:
             self.price_line.set_visible(False)
         
+        # Update EMA200 line
+        if 'ema200' in df.columns and self.get_line_visibility('ema200'):
+            self.ema200_line.set_data(range(len(df)), df['ema200'])
+            self.ema200_line.set_visible(True)
+        else:
+            self.ema200_line.set_visible(False)
+        
+        # Update trend visualization
+        if 'trend' in df.columns and len(df) > 0:
+            self.update_trend_visualization(df)
+        
 
         
         # Update medians
@@ -493,8 +510,7 @@ class DataVisualizer:
             self.trigger_sell.set_visible(False)
         print(f"DEBUG: Signals updated")
         
-        # Update near median zones
-        self.update_distanced_median_zones(df)
+
         
         # Update statistics panel
         self.update_statistics(df)
@@ -540,41 +556,26 @@ class DataVisualizer:
         # Update title
         self.ax.set_title(f"{self.current_file} - {len(df)} candles", color='white', fontsize=12)
         
+        # Add trend indicator if available
+        if 'trend' in df.columns and len(df) > 0:
+            current_trend = df['trend'].iloc[-1]
+            trend_color = '#00ff00' if current_trend == 'BULL' else '#ff0000' if current_trend == 'BEAR' else '#ffff00'
+            trend_text = f'Trend: {current_trend}'
+            
+            # Remove existing trend text if any
+            for artist in self.ax.get_children():
+                if hasattr(artist, 'get_text') and 'Trend:' in artist.get_text():
+                    artist.remove()
+            
+            # Add new trend indicator
+            self.ax.text(0.02, 0.98, trend_text, transform=self.ax.transAxes, 
+                        fontsize=12, color=trend_color, weight='bold',
+                        bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
+        
         # Redraw canvas
         self.canvas.draw()
     
-    def update_distanced_median_zones(self, df):
-        """Update distanced median zones visualization"""
-        try:
-            # Update distanced median zones
-            if 'distanced_median_zones' in df.columns and self.get_line_visibility('distanced_median_zones'):
-                distanced_indices = df[df['distanced_median_zones'] == 1].index.tolist()
-                
-                if distanced_indices:
-                    # Create continuous zones
-                    zones = self.create_continuous_zones(distanced_indices)
-                    self.plot_distanced_median_zones(zones)
-                    
-                    # Add statistics to plot title
-                    total_rows = len(df)
-                    distanced_count = len(distanced_indices)
-                    if total_rows > 0:
-                        percentage = (distanced_count / total_rows) * 100
-                        self.ax.set_title(f"Distanced Median Zones ({percentage:.1f}% of data)", 
-                                         fontsize=12, fontweight='bold', color='#8a2be2')
-                else:
-                    # Remove existing bars if no zones
-                    for artist in self.ax.get_children():
-                        if hasattr(artist, 'get_label') and artist.get_label() == 'Distanced Median Zones':
-                            artist.remove()
-            else:
-                # Remove existing bars if not visible
-                for artist in self.ax.get_children():
-                    if hasattr(artist, 'get_label') and artist.get_label() == 'Distanced Median Zones':
-                        artist.remove()
-                
-        except Exception as e:
-            print(f"Error updating distanced median zones: {e}")
+
     
     def create_continuous_zones(self, indices):
         """Create continuous zones from individual indices"""
@@ -642,29 +643,7 @@ class DataVisualizer:
         except Exception as e:
             print(f"Error plotting median zones: {e}")
     
-    def plot_distanced_median_zones(self, zones):
-        """Plot distanced median zones as vertical bars with enhanced visualization"""
-        try:
-            # Remove existing bars
-            for artist in self.ax.get_children():
-                if hasattr(artist, 'get_label') and artist.get_label() == 'Distanced Median Zones':
-                    artist.remove()
-            
-            # Add new bars with enhanced styling
-            for start, end in zones:
-                self.ax.axvspan(start, end, alpha=0.4, color='#8a2be2', 
-                               label='Distanced Median Zones', linewidth=1)
-                
-                # Add zone label in the middle
-                mid_point = (start + end) / 2
-                if end - start > 5:  # Only add label for zones wider than 5 points
-                    self.ax.text(mid_point, self.ax.get_ylim()[1] * 0.98, 
-                                'DISTANCED', ha='center', va='top', 
-                                fontsize=8, fontweight='bold', color='#4b0082',
-                                bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
-                    
-        except Exception as e:
-            print(f"Error plotting distanced median zones: {e}")
+
     
     def update_plot_visibility(self):
         """Update plot visibility based on checkbox states"""
@@ -776,6 +755,31 @@ class DataVisualizer:
             self.status_var.set(f"Forced full view - {len(df)} candles")
         else:
             self.status_var.set("No data available for full view")
+    
+    def update_trend_visualization(self, df):
+        """Update trend visualization with background colors"""
+        try:
+            # Remove existing trend backgrounds
+            for artist in self.ax.get_children():
+                if hasattr(artist, 'get_label') and 'Trend Background' in artist.get_label():
+                    artist.remove()
+            
+            # Get current trend
+            current_trend = df['trend'].iloc[-1]
+            
+            # Add trend background color
+            if current_trend == 'BULL':
+                # Green background for bullish trend
+                self.ax.axhspan(df['bidclose'].min(), df['bidclose'].max(), 
+                               alpha=0.1, color='green', label='Trend Background')
+            elif current_trend == 'BEAR':
+                # Red background for bearish trend
+                self.ax.axhspan(df['bidclose'].min(), df['bidclose'].max(), 
+                               alpha=0.1, color='red', label='Trend Background')
+            # FLAT trend gets no background
+            
+        except Exception as e:
+            print(f"Error updating trend visualization: {e}")
     
     def run(self):
         """Start the GUI application"""
