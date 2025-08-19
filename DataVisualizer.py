@@ -42,13 +42,17 @@ class DataVisualizer:
             'price': tk.BooleanVar(value=True),
             'ema200': tk.BooleanVar(value=True),
             'trend_background': tk.BooleanVar(value=True),
-            'price_median': tk.BooleanVar(value=True),
+            'bidclose_median': tk.BooleanVar(value=True),
+            'bidopen_median': tk.BooleanVar(value=True),
+            'ema50': tk.BooleanVar(value=True),
+            'ema80': tk.BooleanVar(value=True),
             'min_low_median': tk.BooleanVar(value=True),
             'max_high_median': tk.BooleanVar(value=True),
             'peaks_min': tk.BooleanVar(value=True),
             'peaks_max': tk.BooleanVar(value=True),
             'buy_signals': tk.BooleanVar(value=True),
             'sell_signals': tk.BooleanVar(value=True),
+
 
 
         }
@@ -189,14 +193,17 @@ class DataVisualizer:
         # Create checkboxes for each line type
         checkbox_configs = [
             ('price', 'Price Line'),
-            ('ema200', 'EMA200'),
-            ('price_median', 'Price Median'),
+            ('ema50', 'EMA50'),
+            ('ema80', 'EMA80'),
+            ('bidclose_median', 'BidClose Median'),
+            ('bidopen_median', 'BidOpen Median'),
             ('min_low_median', 'Min Low Median'),
             ('max_high_median', 'Max High Median'),
             ('peaks_min', 'Min Peaks'),
             ('peaks_max', 'Max Peaks'),
             ('buy_signals', 'Buy Signals (Diamond)'),
             ('sell_signals', 'Sell Signals (Diamond)'),
+
 
 
         ]
@@ -240,10 +247,7 @@ class DataVisualizer:
             ('total_peaks', 'Total Peaks:'),
             ('min_peaks', 'Min Peaks:'),
             ('max_peaks', 'Max Peaks:'),
-            ('support_zones', 'Support Zones:'),
-            ('resistance_zones', 'Resistance Zones:'),
-            ('support_percentage', 'Support %:'),
-            ('resistance_percentage', 'Resistance %:')
+
         ]
         
         for i, (key, label) in enumerate(stats_configs):
@@ -270,21 +274,18 @@ class DataVisualizer:
             total_max_peaks = df['peaks_max'].sum() if 'peaks_max' in df.columns else 0
             total_peaks = total_min_peaks + total_max_peaks
             
-            # Las zonas de medianas cercanas han sido eliminadas, solo mostrar picos
-            support_zones = 0
-            resistance_zones = 0
+            # Calculate flat zones statistics
             
-            support_percentage = 0
-            resistance_percentage = 0
+            
+            # Calculate percentage of flat zones
+            total_rows = len(df)
+    
             
             # Update labels
             self.stats_labels['total_peaks'].config(text=str(total_peaks))
             self.stats_labels['min_peaks'].config(text=str(total_min_peaks))
             self.stats_labels['max_peaks'].config(text=str(total_max_peaks))
-            self.stats_labels['support_zones'].config(text=str(support_zones))
-            self.stats_labels['resistance_zones'].config(text=str(resistance_zones))
-            self.stats_labels['support_percentage'].config(text=f"{support_percentage:.1f}%")
-            self.stats_labels['resistance_percentage'].config(text=f"{resistance_percentage:.1f}%")
+            
             
         except Exception as e:
             print(f"Error updating statistics: {e}")
@@ -304,20 +305,22 @@ class DataVisualizer:
         # Price line
         self.price_line, = self.ax.plot([], [], linestyle='-', color='#00ff00', label='Price', linewidth=1)
         
-        # EMA200 line
-        self.ema200_line, = self.ax.plot([], [], linestyle='-', color='#ff6b6b', label='EMA200', linewidth=2, alpha=0.8)
+        # EMA lines
+        self.ema50_line, = self.ax.plot([], [], linestyle='-', color='#ff6b6b', label='EMA50', linewidth=2, alpha=0.8)
+        self.ema80_line, = self.ax.plot([], [], linestyle='-', color='#ff8b94', label='EMA80', linewidth=2, alpha=0.8)
         
         # Median lines
-        self.price_median_line, = self.ax.plot([], [], linestyle='--', color='#ffd93d', label='Price Median', linewidth=1.5, alpha=0.7)
+        self.bidclose_median_line, = self.ax.plot([], [], linestyle='--', color='#ffd93d', label='BidClose Median', linewidth=1.5, alpha=0.7)
+        self.bidopen_median_line, = self.ax.plot([], [], linestyle='--', color='#ffa500', label='BidOpen Median', linewidth=1.5, alpha=0.7)
         self.min_low_median_line, = self.ax.plot([], [], linestyle='--', color='#6bcf7f', label='Min Low Median', linewidth=1.5, alpha=0.7)
         self.max_high_median_line, = self.ax.plot([], [], linestyle='--', color='#ff8b94', label='Max High Median', linewidth=1.5, alpha=0.7)
         
         
         
         # Peak markers
-        self.peaks_min_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#00ccff', 
+        self.peaks_min_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#ff69b4', 
                                           label='Min Peaks', markersize=6)
-        self.peaks_max_inf, = self.ax.plot([], [], linestyle='', marker='o', color='orange', 
+        self.peaks_max_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#32cd32', 
                                           label='Max Peaks', markersize=6)
         
         # Trigger markers
@@ -412,9 +415,15 @@ class DataVisualizer:
             
             # Check if we're actually zoomed (not at default view)
             if len(df) > 0:
-                price_min = df['bidclose'].min()
-                price_max = df['bidclose'].max()
-                margin = (price_max - price_min) * 0.01
+                prices = df['bidclose'].dropna()
+                if len(prices) == 0:
+                    price_min, price_max = 0.0, 1.0
+                else:
+                    price_min = float(prices.min())
+                    price_max = float(prices.max())
+                if not np.isfinite(price_min) or not np.isfinite(price_max) or price_max <= price_min:
+                    price_max = price_min + 1e-6
+                margin = max((price_max - price_min) * 0.01, 1e-6)
                 
                 # Consider zoomed if xlim is not full range or ylim is significantly different
                 x_range_ratio = (current_xlim[1] - current_xlim[0]) / len(df)
@@ -441,12 +450,18 @@ class DataVisualizer:
         else:
             self.price_line.set_visible(False)
         
-        # Update EMA200 line
-        if 'ema200' in df.columns and self.get_line_visibility('ema200'):
-            self.ema200_line.set_data(range(len(df)), df['ema200'])
-            self.ema200_line.set_visible(True)
+        # Update EMA lines
+        if 'ema50' in df.columns and self.get_line_visibility('ema50'):
+            self.ema50_line.set_data(range(len(df)), df['ema50'])
+            self.ema50_line.set_visible(True)
         else:
-            self.ema200_line.set_visible(False)
+            self.ema50_line.set_visible(False)
+            
+        if 'ema80' in df.columns and self.get_line_visibility('ema80'):
+            self.ema80_line.set_data(range(len(df)), df['ema80'])
+            self.ema80_line.set_visible(True)
+        else:
+            self.ema80_line.set_visible(False)
         
         # Update trend visualization
         if 'trend' in df.columns and len(df) > 0:
@@ -455,11 +470,17 @@ class DataVisualizer:
 
         
         # Update medians
-        if 'price_median' in df.columns and self.get_line_visibility('price_median'):
-            self.price_median_line.set_data(range(len(df)), df['price_median'])
-            self.price_median_line.set_visible(True)
+        if 'bidclose_median' in df.columns and self.get_line_visibility('bidclose_median'):
+            self.bidclose_median_line.set_data(range(len(df)), df['bidclose_median'])
+            self.bidclose_median_line.set_visible(True)
         else:
-            self.price_median_line.set_visible(False)
+            self.bidclose_median_line.set_visible(False)
+
+        if 'bidopen_median' in df.columns and self.get_line_visibility('bidopen_median'):
+            self.bidopen_median_line.set_data(range(len(df)), df['bidopen_median'])
+            self.bidopen_median_line.set_visible(True)
+        else:
+            self.bidopen_median_line.set_visible(False)
 
         if 'min_low_median' in df.columns and self.get_line_visibility('min_low_median'):
             self.min_low_median_line.set_data(range(len(df)), df['min_low_median'])
@@ -510,6 +531,7 @@ class DataVisualizer:
             self.trigger_sell.set_visible(False)
         print(f"DEBUG: Signals updated")
         
+        # Update flat zones
 
         
         # Update statistics panel
@@ -519,9 +541,15 @@ class DataVisualizer:
         
         # Update plot limits with better zoom handling
         if len(df) > 0:
-            price_min = df['bidclose'].min()
-            price_max = df['bidclose'].max()
-            margin = (price_max - price_min) * 0.01
+            prices = df['bidclose'].dropna()
+            if len(prices) == 0:
+                price_min, price_max = 0.0, 1.0
+            else:
+                price_min = float(prices.min())
+                price_max = float(prices.max())
+            if not np.isfinite(price_min) or not np.isfinite(price_max) or price_max <= price_min:
+                price_max = price_min + 1e-6
+            margin = max((price_max - price_min) * 0.01, 1e-6)
             
             if zoomed and current_xlim is not None and current_ylim is not None:
                 # If zoomed, try to maintain the zoom level
@@ -564,8 +592,10 @@ class DataVisualizer:
             
             # Remove existing trend text if any
             for artist in self.ax.get_children():
-                if hasattr(artist, 'get_text') and 'Trend:' in artist.get_text():
-                    artist.remove()
+                if hasattr(artist, 'get_text'):
+                    text_content = artist.get_text()
+                    if isinstance(text_content, str) and 'Trend:' in text_content:
+                        artist.remove()
             
             # Add new trend indicator
             self.ax.text(0.02, 0.98, trend_text, transform=self.ax.transAxes, 
@@ -745,9 +775,15 @@ class DataVisualizer:
             # Clear any existing zoom
             self.ax.set_xlim(0, len(df))
             if len(df) > 0:
-                price_min = df['bidclose'].min()
-                price_max = df['bidclose'].max()
-                margin = (price_max - price_min) * 0.05  # 5% margin
+                prices = df['bidclose'].dropna() if 'bidclose' in df.columns else pd.Series([], dtype=float)
+                if len(prices) == 0:
+                    price_min, price_max = 0.0, 1.0
+                else:
+                    price_min = float(prices.min())
+                    price_max = float(prices.max())
+                if not np.isfinite(price_min) or not np.isfinite(price_max) or price_max <= price_min:
+                    price_max = price_min + 1e-6
+                margin = max((price_max - price_min) * 0.05, 1e-6)  # 5% margin
                 self.ax.set_ylim(price_min - margin, price_max + margin)
             
             # Force canvas redraw
@@ -761,22 +797,39 @@ class DataVisualizer:
         try:
             # Remove existing trend backgrounds
             for artist in self.ax.get_children():
-                if hasattr(artist, 'get_label') and 'Trend Background' in artist.get_label():
-                    artist.remove()
+                if hasattr(artist, 'get_label'):
+                    label_value = artist.get_label()
+                    if isinstance(label_value, str) and 'Trend Background' in label_value:
+                        artist.remove()
             
-            # Get current trend
+            # Get current trend safely
+            if 'trend' not in df.columns or len(df) == 0:
+                return
             current_trend = df['trend'].iloc[-1]
             
             # Add trend background color
+            # Compute safe price range for background
+            prices_bg = df['bidclose'].dropna() if 'bidclose' in df.columns else pd.Series([], dtype=float)
+            if len(prices_bg) == 0:
+                bg_min, bg_max = 0.0, 1.0
+            else:
+                bg_min = float(prices_bg.min())
+                bg_max = float(prices_bg.max())
+            if not np.isfinite(bg_min) or not np.isfinite(bg_max) or bg_max <= bg_min:
+                bg_max = bg_min + 1e-6
+
             if current_trend == 'BULL':
                 # Green background for bullish trend
-                self.ax.axhspan(df['bidclose'].min(), df['bidclose'].max(), 
-                               alpha=0.1, color='green', label='Trend Background')
+                self.ax.axhspan(bg_min, bg_max, 
+                               alpha=0.1, color='green', label='Trend Background - BULL')
             elif current_trend == 'BEAR':
                 # Red background for bearish trend
-                self.ax.axhspan(df['bidclose'].min(), df['bidclose'].max(), 
-                               alpha=0.1, color='red', label='Trend Background')
-            # FLAT trend gets no background
+                self.ax.axhspan(bg_min, bg_max, 
+                               alpha=0.1, color='red', label='Trend Background - BEAR')
+            elif current_trend == 'FLAT':
+                # Yellow/gray background for flat trend
+                self.ax.axhspan(bg_min, bg_max, 
+                               alpha=0.1, color='yellow', label='Trend Background - FLAT')
             
         except Exception as e:
             print(f"Error updating trend visualization: {e}")

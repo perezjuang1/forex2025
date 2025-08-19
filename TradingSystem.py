@@ -56,13 +56,12 @@ class TradingSystem:
             df = self.priceAnalyzer.set_indicators(df)
             df = self.priceAnalyzer.set_signals_to_trades(df)      
             self.priceAnalyzer.triggers_trades_open(df)
-            self.priceAnalyzer.triggers_trades_close(df)
+            #self.priceAnalyzer.triggers_trades_close(df)
             
             # Save the processed data with signals to CSV
             if not df.empty:
                 self.priceAnalyzer.save_price_data_file(df)
             
-            print(df)
         except Exception as e:
             print(f"Exception in operation_detection: {str(e)}")
             print(traceback.format_exc())

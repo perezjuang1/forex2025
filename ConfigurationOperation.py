@@ -51,9 +51,9 @@ class TradingConfig:
     timeframe = "m1"  # Available periods: 'm1', 'm5', 'm15', 'm30', 'H1', 'H2', 'H3', 'H4', 'H6', 'H8', 'D1', 'W1', 'M1'
     
     # Position sizing and risk management
-    lots = 2
+    lots = 3
     stop = 6
-    limit = 12
+    limit = 15
     
     # Pegged order settings
     peggedstop = 'Y'

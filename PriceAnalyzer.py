@@ -115,30 +115,6 @@ class PriceAnalyzer:
         except Exception as e:
             self._log_message(f"Error appending to trade log: {e}", level='error')
 
-    def _has_recent_open(self, cooldown_minutes: int = 10) -> bool:
-        try:
-            if not os.path.exists(self.trade_log_file):
-                return False
-            df_log = pd.read_csv(self.trade_log_file)
-            if df_log.empty:
-                return False
-            # Filter by instrument and action OPEN
-            filtered = df_log[(df_log['instrument'] == self.instrument) & (df_log['action'] == 'OPEN')]
-            if filtered.empty:
-                return False
-            # Parse timestamps
-            filtered['timestamp'] = pd.to_datetime(filtered['timestamp'], errors='coerce')
-            last_open_time = filtered['timestamp'].max()
-            if pd.isna(last_open_time):
-                return False
-            europe_london = pytz.timezone('Europe/London')
-            now_time = datetime.now(europe_london)
-            delta_minutes = (now_time - last_open_time.to_pydatetime()).total_seconds() / 60.0
-            return delta_minutes < cooldown_minutes
-        except Exception as e:
-            self._log_message(f"Error checking recent open: {e}", level='error')
-            return False
-
     def get_price_data(self, instrument: str, timeframe: str, days: int, connection) -> pd.DataFrame:
         try:
             europe_London_datetime = datetime.now(pytz.timezone('Europe/London'))
@@ -146,24 +122,9 @@ class PriceAnalyzer:
             date_to = europe_London_datetime
             
             history = connection.get_history(instrument, timeframe, date_from, date_to)
-            
-            if history is None or len(history) == 0:
-                self._log_message(f"No historical data received for {instrument} {timeframe}", level='error')
-                return pd.DataFrame()
-            
-            self._log_message(
-                f"PRICE DATA: Timeframe={timeframe}, Instrument={instrument}, Date={europe_London_datetime}, Rows={len(history)}"
-            )
-            
-            # Check if history has data
-            if len(history) > 0:
-                self._log_message(f"First history row: {history[0]}")
-                self._log_message(f"Last history row: {history[-1]}")
-            
+               
             pricedata = pd.DataFrame(history, columns=["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
-            
-            self._log_message(f"Created pricedata DataFrame with {len(pricedata)} rows")
-            
+           
             if pricedata.empty:
                 self._log_message(f"Empty DataFrame created for {instrument} {timeframe}", level='error')
                 return pd.DataFrame()
@@ -181,16 +142,7 @@ class PriceAnalyzer:
             df['date'] = df['date'].astype(str).str.replace('-', '').str.replace(':', '').str.replace(' ', '').str[:-2]
             df['date'] = df['date'].apply(lambda x: int(x))
             
-            # Check DataFrame after processing
-            self._log_message(f"DataFrame created with {len(df)} rows")
-            if len(df) > 0:
-                self._log_message(f"First row: {df.iloc[0].to_dict()}")
-                self._log_message(f"Last row: {df.iloc[-1].to_dict()}")
-            
-            if df is None or df.empty:
-                self._log_message(f"Failed to process indicators for {instrument} {timeframe}", level='error')
-                return pd.DataFrame()
-            
+           
             return df
             
         except Exception as e:
@@ -210,18 +162,17 @@ class PriceAnalyzer:
 
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         try:
-            self._log_message(f"Setting indicators for {len(df)} rows")
-            
+               
             # Calcular peaks
             df = self.calculate_peaks(df)
             
             # Calcular medianas (precio, min, max)
             df = self._add_median_indicators(df)
             
-            # Calcular EMA200 y tendencia
+            # Calcular tendencia basada en medianas
             df = self._calculate_trend_indicators(df)
-     
-            self._log_message(f"All indicators calculated successfully for {len(df)} rows: peaks, medians, and trend indicators")
+      
+            self._log_message(f"All indicators calculated successfully for {len(df)} rows: peaks, medians, trend indicators (based on medians), EMAs (50,80)")
             return df
             
         except Exception as e:
@@ -229,22 +180,39 @@ class PriceAnalyzer:
             return df
 
     def _calculate_trend_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate EMA200 and trend direction based on price vs EMA200"""
+        """Calculate trend direction based on medianas vs EMAs comparison"""
         try:
-            # Calculate EMA200
-            df['ema200'] = df['bidclose'].ewm(span=200).mean()
+            # Calculate EMAs
+            df['ema50'] = df['bidclose'].ewm(span=50).mean()
+            df['ema80'] = df['bidclose'].ewm(span=80).mean()
             
-            # Calculate trend based on price vs EMA200
+            # Calculate trend based on medianas vs EMAs
             def tendencia(row):
-                if row['bidclose'] > row['ema200']:
+                # Verificar que las medianas y EMAs existan
+                if (pd.isna(row['bidclose_median']) or pd.isna(row['bidopen_median']) or 
+                    pd.isna(row['ema50']) or pd.isna(row['ema80'])):
+                    return 'FLAT'
+                
+                # BULL: ambas medianas deben ser mayores que las EMAs
+                if (row['bidclose_median'] > row['ema50'] and row['bidclose_median'] > row['ema80'] and
+                    row['bidopen_median'] > row['ema50'] and row['bidopen_median'] > row['ema80']):
                     return 'BULL'
-                elif row['bidclose'] < row['ema200']:
+                # BEAR: ambas medianas deben ser menores que las EMAs
+                elif (row['bidclose_median'] < row['ema50'] and row['bidclose_median'] < row['ema80'] and
+                      row['bidopen_median'] < row['ema50'] and row['bidopen_median'] < row['ema80']):
                     return 'BEAR'
-                return 'FLAT'
+                # Si no cumple ninguna condición → FLAT (plano)
+                else:
+                    return 'FLAT'
             
             df['trend'] = df.apply(tendencia, axis=1)
             
-            self._log_message(f"Trend indicators calculated: EMA200 and trend direction")
+            # Contar tendencias para logging
+            bull_count = (df['trend'] == 'BULL').sum()
+            bear_count = (df['trend'] == 'BEAR').sum()
+            flat_count = (df['trend'] == 'FLAT').sum()
+            
+            self._log_message(f"Trend indicators calculated: BULL={bull_count}, BEAR={bear_count}, FLAT={flat_count} based on medianas > EMAs (BULL) or medianas < EMAs (BEAR)")
             return df
             
         except Exception as e:
@@ -256,35 +224,32 @@ class PriceAnalyzer:
         return df
 
     def _add_price_peaks(self, df, order):        
-
-            peaks_min_idx = signal.argrelextrema(df['bidclose'].values, np.less_equal, order=order)[0]
-            peaks_max_idx = signal.argrelextrema(df['bidclose'].values, np.greater_equal, order=order)[0]
-            
             df['peaks_min'] = 0
             df['peaks_max'] = 0
+
+            peaks_min_idx = signal.argrelextrema(df['bidclose'].values, np.less, order=order)[0]
+            peaks_max_idx = signal.argrelextrema(df['bidclose'].values, np.greater, order=order)[0]
             
             df.loc[peaks_min_idx, 'peaks_min'] = 1
             df.loc[peaks_max_idx, 'peaks_max'] = 1
 
-            
-
-
     def _add_median_indicators(self, df: pd.DataFrame, window: int = 50) -> pd.DataFrame:
-        """Add median indicators (price_median, min_median, max_median) and near median zones"""
+        """Add median indicators (bidclose_median, bidopen_median, min_low_median, max_high_median) and near median zones"""
         try:
             # Calcular medianas móviles
-            df['price_median'] = df['bidclose'].rolling(window=window, center=True).median()
-            df['min_low_median'] = df['bidlow'].rolling(window=window, center=True).min()
-            df['max_high_median'] = df['bidhigh'].rolling(window=window, center=True).max()
-            
-
-            
+            df['bidclose_median'] = df['bidclose'].rolling(window=window, center=True).median()
+            df['bidopen_median'] = df['bidopen'].rolling(window=window, center=True).median()
+            df['min_low_median'] = df['bidlow'].rolling(window=window, center=True).median()
+            df['max_high_median'] = df['bidhigh'].rolling(window=window, center=True).median()
+                        
             # Rellenar valores NaN siguiendo la tendencia usando interpolación
-            df['price_median'] = self._fill_na_with_trend(df['price_median'])
+            df['bidclose_median'] = self._fill_na_with_trend(df['bidclose_median'])
+            df['bidopen_median'] = self._fill_na_with_trend(df['bidopen_median'])
             df['min_low_median'] = self._fill_na_with_trend(df['min_low_median'])
             df['max_high_median'] = self._fill_na_with_trend(df['max_high_median'])
             
-            self._log_message(f"Median indicators calculated: price_median, min_low_median, max_high_median, near_median_zones (window: {window})")
+            self._log_message(f"Median indicators calculated: bidclose_median, bidopen_median, min_low_median, max_high_median, near_median_zones (window: {window})")
+            
             return df
             
         except Exception as e:
@@ -345,48 +310,55 @@ class PriceAnalyzer:
             return series.fillna(method='ffill').fillna(method='bfill')
     
 
+    
+
+    
+
+    
+
+    
+
+    
+
+
+
+
+
         
     def set_signals_to_trades(self, df: pd.DataFrame, config=None) -> pd.DataFrame:
-        """Signal generation using only peaks where medians are completely separated and signals match trend"""
-        self._log_message(f"Setting signals to trades for {len(df)} rows")
-        
         if config is None:
             from ConfigurationOperation import TradingConfig
             config = TradingConfig()
         
         signal_col = config.signal_col if hasattr(config, 'signal_col') else 'signal'
         df[signal_col] = self.SIGNAL_NEUTRAL
-        
-        self._log_message(f"Using peak-based signal generation with trend validation")
-        
+                
         buy_signals = 0
         sell_signals = 0
         
         for i in range(len(df)):
-            # === CONDICIONES DE COMPRA ===
-            # Solo peak mínimo y tendencia alcista
+            # === CONDICIONES DE COMPRA (SIMPLIFICADAS) ===
+            # Peak mínimo + Tendencia alcista
             buy_peak = df['peaks_min'].iloc[i] == 1
             bullish_trend = df['trend'].iloc[i] == 'BULL'
             
-            # === CONDICIONES DE VENTA ===
-            # Solo peak máximo y tendencia bajista
-            sell_peak = df['peaks_max'].iloc[i] == 1
-            bearish_trend = df['trend'].iloc[i] == 'BEAR'
-            
-            # Generar señales solo cuando las condiciones se cumplan
+            # Generar señal si hay peak Y tendencia alcista
             if buy_peak and bullish_trend:
                 self._set_signal(df, i, signal_col, self.SIGNAL_BUY)
                 buy_signals += 1
-                self._log_message(f"BUY signal at index {i} - Peak minimum + bullish trend")
             
+            # === CONDICIONES DE VENTA (SIMPLIFICADAS) ===
+            # Peak máximo + Tendencia bajista
+            sell_peak = df['peaks_max'].iloc[i] == 1
+            bearish_trend = df['trend'].iloc[i] == 'BEAR'
+            
+            # Generar señal si hay peak Y tendencia bajista
             if sell_peak and bearish_trend:
                 self._set_signal(df, i, signal_col, self.SIGNAL_SELL)
                 sell_signals += 1
-                self._log_message(f"SELL signal at index {i} - Peak maximum + bearish trend")
         
         # Since signals are already filtered by trend, valid_signal equals signal
-        df['valid_signal'] = df[signal_col]
-        
+        df['valid_signal'] = df[signal_col]        
         self._log_message(f"Generated {buy_signals} buy signals and {sell_signals} sell signals - peaks with trend validation")
         return df
 
@@ -394,7 +366,7 @@ class PriceAnalyzer:
         df.iloc[idx, df.columns.get_loc(signal_col)] = value
 
     def triggers_trades_open(self, df: pd.DataFrame, config=None):
-        """Simplified trade opening - validates last 6 candles and checks if conditions are met to process the signal"""
+        """Simplified trade opening - processes last 7 candles but ignores last 2"""
         try:
             # Initialize config
             if config is None:
@@ -403,32 +375,29 @@ class PriceAnalyzer:
             
             signal_col = config.signal_col if hasattr(config, 'signal_col') else 'signal'
             
-            # Validate that we have at least 6 candles
-            if len(df) < 6:
-                self._log_message(f"Not enough data for signal validation (need 6 candles, have {len(df)})")
-                return
+            # Get the last 7 candles but ignore the last 2 (process candles 3-7 from the end)
+            last_7_candles = df.tail(7)
+            validation_candles = last_7_candles.head(5)  # Exclude last 2 candles
             
-            # Get the last 6 candles and exclude the last one (validate last 5)
-            last_6_candles = df.tail(6)
-            validation_candles = last_6_candles.head(5)  # Exclude the last candle
+            self._log_message(f"Processing signals in last 7 candles (excluding last 2) for trade execution")
             
-            self._log_message(f"Validating signals in last 5 candles (excluding most recent) for trade processing")
-            
-            # Check for signals in the validation period
+            # Check for signals in the validation period (candles 3-7 from the end)
             buy_signals = validation_candles[validation_candles[signal_col] == self.SIGNAL_BUY]
             sell_signals = validation_candles[validation_candles[signal_col] == self.SIGNAL_SELL]
             
-            self._log_message(f"Found {len(buy_signals)} buy signals, {len(sell_signals)} sell signals in validation period")
+            self._log_message(f"Found {len(buy_signals)} buy signals, {len(sell_signals)} sell signals in validation period (candles 3-7)")
             
-            # Process signals only if conditions are met
+            # Process signals immediately
             if not buy_signals.empty:
-                self._log_message(f"BUY signal conditions met - processing trade")
-                self._process_buy_signal(buy_signals.iloc[-1])
+                latest_buy = buy_signals.iloc[-1]
+                self._log_message(f"BUY signal detected - opening trade from candle {latest_buy['date']}")
+                self._process_buy_signal(latest_buy)
             elif not sell_signals.empty:
-                self._log_message(f"SELL signal conditions met - processing trade")
-                self._process_sell_signal(sell_signals.iloc[-1])
+                latest_sell = sell_signals.iloc[-1]
+                self._log_message(f"SELL signal detected - opening trade from candle {latest_sell['date']}")
+                self._process_sell_signal(latest_sell)
             else:
-                self._log_message("No valid signals found in validation period - no trades processed")
+                self._log_message("No signals found in validation period (candles 3-7)")
             
         except Exception as e:
             self._log_message(f"Error in triggers_trades_open: {e}", level='error')
@@ -458,11 +427,6 @@ class PriceAnalyzer:
             self._log_message(f"No existing SELL operations to close")
 
     def _open_buy_operation(self, signal_date, signal_price):
-        if self._has_recent_open(cooldown_minutes=10):
-            self._log_message(
-                f"Cooldown active - skipping BUY open. Instrument={self.instrument}, Timeframe={self.timeframe}, Window=10m"
-            )
-            return
         if not self.existingOperation(instrument=self.instrument, BuySell="B"):
             self._log_message(
                 f"[OPEN BUY] Reason: BUY signal detected | Date: {signal_date} | "
@@ -507,11 +471,6 @@ class PriceAnalyzer:
             self._log_message(f"No existing BUY operations to close")
 
     def _open_sell_operation(self, signal_date, signal_price):
-        if self._has_recent_open(cooldown_minutes=10):
-            self._log_message(
-                f"Cooldown active - skipping SELL open. Instrument={self.instrument}, Timeframe={self.timeframe}, Window=10m"
-            )
-            return
         if not self.existingOperation(instrument=self.instrument, BuySell="S"):
             self._log_message(
                 f"[OPEN SELL] Reason: SELL signal detected | Date: {signal_date} | "
