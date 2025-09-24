@@ -167,9 +167,13 @@ class PriceAnalyzer:
 
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         try:
-            # Calcular solo peaks
+            # Calcular peaks
             df = self.calculate_peaks(df)
-            self._log_message(f"Peaks calculated successfully for {len(df)} rows: peaks_min, peaks_max")
+            # Calcular medians
+            df = self.calculate_medians(df)
+            # Calcular EMA 200
+            df = self.calculate_ema_200(df)
+            self._log_message(f"Peaks, medians and EMA200 calculated successfully for {len(df)} rows: peaks_min, peaks_max, median_high, median_low, median_close, median_open, ema_200")
             return df
         except Exception as e:
             self._log_message(f"Error setting indicators: {str(e)}", 'error')
@@ -178,6 +182,45 @@ class PriceAnalyzer:
 
     def calculate_peaks(self, df: pd.DataFrame, order: int = 50) -> pd.DataFrame:
         self._add_price_peaks(df, order)
+        return df
+
+    def calculate_medians(self, df: pd.DataFrame, window: int = 50) -> pd.DataFrame:
+        """Calculate rolling medians for bidhigh, bidlow, bidclose, bidopen"""
+        if df is None or df.empty:
+            return df
+        
+        # Initialize median columns
+        df['median_high'] = np.nan
+        df['median_low'] = np.nan
+        df['median_close'] = np.nan
+        df['median_open'] = np.nan
+        
+        # Calculate rolling medians
+        if 'bidhigh' in df.columns:
+            df['median_high'] = df['bidhigh'].rolling(window=window, min_periods=1).median()
+        
+        if 'bidlow' in df.columns:
+            df['median_low'] = df['bidlow'].rolling(window=window, min_periods=1).median()
+        
+        if 'bidclose' in df.columns:
+            df['median_close'] = df['bidclose'].rolling(window=window, min_periods=1).median()
+        
+        if 'bidopen' in df.columns:
+            df['median_open'] = df['bidopen'].rolling(window=window, min_periods=1).median()
+        
+        return df
+
+    def calculate_ema_200(self, df: pd.DataFrame, period: int = 200) -> pd.DataFrame:
+        """Calculate Exponential Moving Average of 200 periods on bidclose"""
+        if df is None or df.empty or 'bidclose' not in df.columns:
+            return df
+        
+        # Initialize EMA column
+        df['ema_200'] = np.nan
+        
+        # Calculate EMA using pandas ewm (exponentially weighted moving average)
+        df['ema_200'] = df['bidclose'].ewm(span=period, adjust=False).mean()
+        
         return df
 
     def _add_price_peaks(self, df, order):        
@@ -189,21 +232,90 @@ class PriceAnalyzer:
             
             df.loc[peaks_min_idx, 'peaks_min'] = 1
             df.loc[peaks_max_idx, 'peaks_max'] = 1
+
             
     def set_signals_to_trades(self, df: pd.DataFrame) -> pd.DataFrame:
-        # Solo usar picos para marcar señales
+        """Generate signals based on peaks with median/EMA filter"""
+        if df is None or df.empty:
+            return df
+            
         df['signal'] = self.SIGNAL_NEUTRAL
         buy_signals = 0
         sell_signals = 0
+        filtered_buy = 0
+        filtered_sell = 0
+        
+        # Check if required columns exist
+        has_medians = all(col in df.columns for col in ['median_high', 'median_low', 'median_close', 'median_open'])
+        has_ema = 'ema_200' in df.columns
+        
         for i in range(len(df)):
-            if df['peaks_min'].iloc[i] == 1:
-                df.at[i, 'signal'] = self.SIGNAL_BUY
-                buy_signals += 1
-            elif df['peaks_max'].iloc[i] == 1:
-                df.at[i, 'signal'] = self.SIGNAL_SELL
-                sell_signals += 1
+            # Peak-based signals with median/EMA filter
+            if df['peaks_min'].iloc[i] == 1:  # Potential BUY signal at LOW peak
+                signal_valid = True
+                
+                if has_medians and has_ema:
+                    # BUY: medians should be ABOVE EMA (bullish condition)
+                    ema_value = df['ema_200'].iloc[i]
+                    median_close = df['median_close'].iloc[i]
+                    median_high = df['median_high'].iloc[i]
+                    median_low = df['median_low'].iloc[i]
+                    
+                    if not pd.isna(ema_value) and not pd.isna(median_close):
+                        # Check if majority of medians are above EMA
+                        medians_above_ema = 0
+                        if not pd.isna(median_high) and median_high > ema_value:
+                            medians_above_ema += 1
+                        if not pd.isna(median_low) and median_low > ema_value:
+                            medians_above_ema += 1
+                        if not pd.isna(median_close) and median_close > ema_value:
+                            medians_above_ema += 1
+                        
+                        # BUY only if at least 2 of 3 main medians are above EMA
+                        if medians_above_ema < 2:
+                            signal_valid = False
+                            filtered_buy += 1
+                
+                if signal_valid:
+                    df.at[i, 'signal'] = self.SIGNAL_BUY
+                    buy_signals += 1
+                    
+            elif df['peaks_max'].iloc[i] == 1:  # Potential SELL signal at HIGH peak
+                signal_valid = True
+                
+                if has_medians and has_ema:
+                    # SELL: medians should be BELOW EMA (bearish condition)
+                    ema_value = df['ema_200'].iloc[i]
+                    median_close = df['median_close'].iloc[i]
+                    median_high = df['median_high'].iloc[i]
+                    median_low = df['median_low'].iloc[i]
+                    
+                    if not pd.isna(ema_value) and not pd.isna(median_close):
+                        # Check if majority of medians are below EMA
+                        medians_below_ema = 0
+                        if not pd.isna(median_high) and median_high < ema_value:
+                            medians_below_ema += 1
+                        if not pd.isna(median_low) and median_low < ema_value:
+                            medians_below_ema += 1
+                        if not pd.isna(median_close) and median_close < ema_value:
+                            medians_below_ema += 1
+                        
+                        # SELL only if at least 2 of 3 main medians are below EMA
+                        if medians_below_ema < 2:
+                            signal_valid = False
+                            filtered_sell += 1
+                
+                if signal_valid:
+                    df.at[i, 'signal'] = self.SIGNAL_SELL
+                    sell_signals += 1
+                
         df['valid_signal'] = df['signal']
-        self._log_message(f"Generated {buy_signals} buy signals and {sell_signals} sell signals - using only peaks")
+        
+        if has_medians and has_ema:
+            self._log_message(f"Filtered signals generated: buy={buy_signals} sell={sell_signals} (filtered: {filtered_buy} buy, {filtered_sell} sell) instrument={self.instrument} timeframe={self.timeframe}")
+        else:
+            self._log_message(f"Peak signals generated: buy={buy_signals} sell={sell_signals} instrument={self.instrument} timeframe={self.timeframe}")
+        
         return df
 
     def _set_signal(self, df, idx, signal_col, value):

@@ -20,6 +20,9 @@ class TradingVisualizer:
             'price': tk.BooleanVar(value=True),
             'peaks_min': tk.BooleanVar(value=True),
             'peaks_max': tk.BooleanVar(value=True),
+            'signals': tk.BooleanVar(value=True),
+            'medians': tk.BooleanVar(value=True),
+            'ema_200': tk.BooleanVar(value=True),
         }
         
         # Initialize data attributes
@@ -156,6 +159,9 @@ class TradingVisualizer:
             ('price', 'Price Line'),
             ('peaks_min', 'Min Peaks'),
             ('peaks_max', 'Max Peaks'),
+            ('signals', 'Signals'),
+            ('medians', 'Medians'),
+            ('ema_200', 'EMA 200'),
         ]
         
         # Create checkboxes in a grid layout
@@ -251,10 +257,21 @@ class TradingVisualizer:
         self.ax.set_facecolor('#1a1a1a')
         
     def setup_lines(self):
-        """Initialize plot lines - only price and peaks"""
+        """Initialize plot lines - price, peaks, signals and medians"""
         self.price_line, = self.ax.plot([], [], linestyle='-', color='#00ff00', label='Price', linewidth=1)
         self.peaks_min_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#ff69b4', label='Min Peaks', markersize=6)
         self.peaks_max_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#32cd32', label='Max Peaks', markersize=6)
+        self.buy_signals, = self.ax.plot([], [], linestyle='', marker='^', color='#00ff00', label='Buy Signal', markersize=8)
+        self.sell_signals, = self.ax.plot([], [], linestyle='', marker='v', color='#ff0000', label='Sell Signal', markersize=8)
+        
+        # Median lines
+        self.median_high_line, = self.ax.plot([], [], linestyle='--', color='#ffff00', label='Median High', linewidth=1, alpha=0.7)
+        self.median_low_line, = self.ax.plot([], [], linestyle='--', color='#ff8c00', label='Median Low', linewidth=1, alpha=0.7)
+        self.median_close_line, = self.ax.plot([], [], linestyle='--', color='#00ffff', label='Median Close', linewidth=1, alpha=0.7)
+        self.median_open_line, = self.ax.plot([], [], linestyle='--', color='#ff00ff', label='Median Open', linewidth=1, alpha=0.7)
+        
+        # EMA 200 line
+        self.ema_200_line, = self.ax.plot([], [], linestyle='-', color='#ffa500', label='EMA 200', linewidth=2, alpha=0.8)
         
 
         
@@ -401,6 +418,68 @@ class TradingVisualizer:
             self.peaks_max_inf.set_visible(True)
         else:
             self.peaks_max_inf.set_visible(False)
+            
+        # Update medians
+        if self.get_line_visibility('medians'):
+            x_data = range(len(df))
+            
+            if 'median_high' in df.columns:
+                self.median_high_line.set_data(x_data, df['median_high'])
+                self.median_high_line.set_visible(True)
+            else:
+                self.median_high_line.set_visible(False)
+                
+            if 'median_low' in df.columns:
+                self.median_low_line.set_data(x_data, df['median_low'])
+                self.median_low_line.set_visible(True)
+            else:
+                self.median_low_line.set_visible(False)
+                
+            if 'median_close' in df.columns:
+                self.median_close_line.set_data(x_data, df['median_close'])
+                self.median_close_line.set_visible(True)
+            else:
+                self.median_close_line.set_visible(False)
+                
+            if 'median_open' in df.columns:
+                self.median_open_line.set_data(x_data, df['median_open'])
+                self.median_open_line.set_visible(True)
+            else:
+                self.median_open_line.set_visible(False)
+        else:
+            self.median_high_line.set_visible(False)
+            self.median_low_line.set_visible(False)
+            self.median_close_line.set_visible(False)
+            self.median_open_line.set_visible(False)
+            
+        # Update EMA 200
+        if 'ema_200' in df.columns and self.get_line_visibility('ema_200'):
+            x_data = range(len(df))
+            self.ema_200_line.set_data(x_data, df['ema_200'])
+            self.ema_200_line.set_visible(True)
+        else:
+            self.ema_200_line.set_visible(False)
+            
+        # Update signals
+        if 'signal' in df.columns and self.get_line_visibility('signals'):
+            buy_x = []
+            buy_y = []
+            sell_x = []
+            sell_y = []
+            for i, val in enumerate(df['signal']):
+                if not pd.isna(val) and val == 1:  # Buy signal
+                    buy_x.append(i)
+                    buy_y.append(df['bidclose'].iloc[i])
+                elif not pd.isna(val) and val == -1:  # Sell signal
+                    sell_x.append(i)
+                    sell_y.append(df['bidclose'].iloc[i])
+            self.buy_signals.set_data(buy_x, buy_y)
+            self.sell_signals.set_data(sell_x, sell_y)
+            self.buy_signals.set_visible(True)
+            self.sell_signals.set_visible(True)
+        else:
+            self.buy_signals.set_visible(False)
+            self.sell_signals.set_visible(False)
         
         # Update plot limits with better zoom handling
         if len(df) > 0:
