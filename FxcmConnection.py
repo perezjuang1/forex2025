@@ -1,4 +1,4 @@
-from ConfigurationOperation import TradingConfig
+from TradingConfiguration import TradingConfig
 
 from forexconnect import fxcorepy, ForexConnect, Common
 

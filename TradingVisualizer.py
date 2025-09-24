@@ -1,94 +1,55 @@
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import warnings
 import os
-from datetime import datetime
-import numpy as np
 import glob
-import threading
-import time
+from datetime import datetime
 
-# Ignore specific matplotlib warnings
-warnings.filterwarnings("ignore", category=UserWarning, message=".*Matplotlib.*")
-
-class DataVisualizer:
-    """Single window plotter with CSV file selector"""
-    
+class TradingVisualizer:
     def __init__(self):
-        """Initialize the GUI plotter"""
         self.root = tk.Tk()
-        self.root.title("Forex Data Visualizer")
-        #self.root.geometry("1400x800")
-        
-        # Get available CSV files
+        self.root.title("Trading Visualizer")
         self.csv_files = self.get_available_csv_files()
         
-        # Current data
+        # Initialize visibility flags
+        self.visibility_flags = {
+            'price': tk.BooleanVar(value=True),
+            'peaks_min': tk.BooleanVar(value=True),
+            'peaks_max': tk.BooleanVar(value=True),
+        }
+        
+        # Initialize data attributes
         self.current_data = None
         self.current_file = None
         
-        # Auto-update settings
-        self.auto_update_enabled = True
-        self.update_interval = 120  # 2 minutes in seconds
-        self.update_thread = None
-        self.stop_update = False
-        self.auto_scroll_enabled = True  # Auto-scroll to new data
-        
-        # Visibility flags for plot lines
-        self.visibility_flags = {
-            'price': tk.BooleanVar(value=True),
-            'ema200': tk.BooleanVar(value=True),
-            'trend_background': tk.BooleanVar(value=True),
-            'bidclose_median': tk.BooleanVar(value=True),
-            'bidopen_median': tk.BooleanVar(value=True),
-            'ema50': tk.BooleanVar(value=True),
-            'ema80': tk.BooleanVar(value=True),
-            'min_low_median': tk.BooleanVar(value=True),
-            'max_high_median': tk.BooleanVar(value=True),
-            'peaks_min': tk.BooleanVar(value=True),
-            'peaks_max': tk.BooleanVar(value=True),
-            'buy_signals': tk.BooleanVar(value=True),
-            'sell_signals': tk.BooleanVar(value=True),
-
-
-
-        }
-        
-        # Setup GUI
         self.setup_gui()
         
-        # Start auto-update thread
-        self.start_auto_update()
-        
     def get_available_csv_files(self):
-        """Get all available CSV files in the current directory"""
-        csv_files = glob.glob("*.csv")
+        """Get all available CSV files in the 'data' directory"""
+        csv_files = glob.glob(os.path.join('data', '*.csv'))
         return sorted(csv_files)
     
     def setup_gui(self):
         """Setup the GUI layout"""
-        # Create main frame
+        self.root.geometry("1400x800")
+        
+        # Main frame
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Left panel for file selection and controls
-        left_panel = ttk.Frame(main_frame, width=350)
-        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        left_panel = ttk.Frame(main_frame, width=300)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
+        left_panel.pack_propagate(False)
         
-        # File selection label
-        ttk.Label(left_panel, text="Available CSV Files:", font=('Arial', 12, 'bold')).pack(pady=(0, 5))
-        
-        # Listbox for file selection
-        self.listbox = tk.Listbox(left_panel, width=40, height=15, font=('Arial', 10))
-        self.listbox.pack(fill=tk.BOTH, expand=True)
-        
-        # Scrollbar for listbox
-        scrollbar = ttk.Scrollbar(left_panel, orient=tk.VERTICAL, command=self.listbox.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox.config(yscrollcommand=scrollbar.set)
+        # File selection
+        ttk.Label(left_panel, text="CSV Files:").pack(anchor=tk.W, pady=(0, 5))
+        self.listbox = tk.Listbox(left_panel, height=8)
+        self.listbox.pack(fill=tk.X, pady=(0, 10))
         
         # Populate listbox
         for file in self.csv_files:
@@ -193,19 +154,8 @@ class DataVisualizer:
         # Create checkboxes for each line type
         checkbox_configs = [
             ('price', 'Price Line'),
-            ('ema50', 'EMA50'),
-            ('ema80', 'EMA80'),
-            ('bidclose_median', 'BidClose Median'),
-            ('bidopen_median', 'BidOpen Median'),
-            ('min_low_median', 'Min Low Median'),
-            ('max_high_median', 'Max High Median'),
             ('peaks_min', 'Min Peaks'),
             ('peaks_max', 'Max Peaks'),
-            ('buy_signals', 'Buy Signals (Diamond)'),
-            ('sell_signals', 'Sell Signals (Diamond)'),
-
-
-
         ]
         
         # Create checkboxes in a grid layout
@@ -301,33 +251,10 @@ class DataVisualizer:
         self.ax.set_facecolor('#1a1a1a')
         
     def setup_lines(self):
-        """Initialize plot lines - peaks, signals, medians, valley zones and trend analysis"""
-        # Price line
+        """Initialize plot lines - only price and peaks"""
         self.price_line, = self.ax.plot([], [], linestyle='-', color='#00ff00', label='Price', linewidth=1)
-        
-        # EMA lines
-        self.ema50_line, = self.ax.plot([], [], linestyle='-', color='#ff6b6b', label='EMA50', linewidth=2, alpha=0.8)
-        self.ema80_line, = self.ax.plot([], [], linestyle='-', color='#ff8b94', label='EMA80', linewidth=2, alpha=0.8)
-        
-        # Median lines
-        self.bidclose_median_line, = self.ax.plot([], [], linestyle='--', color='#ffd93d', label='BidClose Median', linewidth=1.5, alpha=0.7)
-        self.bidopen_median_line, = self.ax.plot([], [], linestyle='--', color='#ffa500', label='BidOpen Median', linewidth=1.5, alpha=0.7)
-        self.min_low_median_line, = self.ax.plot([], [], linestyle='--', color='#6bcf7f', label='Min Low Median', linewidth=1.5, alpha=0.7)
-        self.max_high_median_line, = self.ax.plot([], [], linestyle='--', color='#ff8b94', label='Max High Median', linewidth=1.5, alpha=0.7)
-        
-        
-        
-        # Peak markers
-        self.peaks_min_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#ff69b4', 
-                                          label='Min Peaks', markersize=6)
-        self.peaks_max_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#32cd32', 
-                                          label='Max Peaks', markersize=6)
-        
-        # Trigger markers
-        self.trigger_buy, = self.ax.plot([], [], 'D', color='white', label='Buy Signal', 
-                                        markersize=8, zorder=30)
-        self.trigger_sell, = self.ax.plot([], [], 'd', color='blue', label='Sell Signal', 
-                                         markersize=8, zorder=30)
+        self.peaks_min_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#ff69b4', label='Min Peaks', markersize=6)
+        self.peaks_max_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#32cd32', label='Max Peaks', markersize=6)
         
 
         
@@ -450,94 +377,30 @@ class DataVisualizer:
         else:
             self.price_line.set_visible(False)
         
-        # Update EMA lines
-        if 'ema50' in df.columns and self.get_line_visibility('ema50'):
-            self.ema50_line.set_data(range(len(df)), df['ema50'])
-            self.ema50_line.set_visible(True)
-        else:
-            self.ema50_line.set_visible(False)
-            
-        if 'ema80' in df.columns and self.get_line_visibility('ema80'):
-            self.ema80_line.set_data(range(len(df)), df['ema80'])
-            self.ema80_line.set_visible(True)
-        else:
-            self.ema80_line.set_visible(False)
-        
-        # Update trend visualization
-        if 'trend' in df.columns and len(df) > 0:
-            self.update_trend_visualization(df)
-        
-
-        
-        # Update medians
-        if 'bidclose_median' in df.columns and self.get_line_visibility('bidclose_median'):
-            self.bidclose_median_line.set_data(range(len(df)), df['bidclose_median'])
-            self.bidclose_median_line.set_visible(True)
-        else:
-            self.bidclose_median_line.set_visible(False)
-
-        if 'bidopen_median' in df.columns and self.get_line_visibility('bidopen_median'):
-            self.bidopen_median_line.set_data(range(len(df)), df['bidopen_median'])
-            self.bidopen_median_line.set_visible(True)
-        else:
-            self.bidopen_median_line.set_visible(False)
-
-        if 'min_low_median' in df.columns and self.get_line_visibility('min_low_median'):
-            self.min_low_median_line.set_data(range(len(df)), df['min_low_median'])
-            self.min_low_median_line.set_visible(True)
-        else:
-            self.min_low_median_line.set_visible(False)
-        
-        if 'max_high_median' in df.columns and self.get_line_visibility('max_high_median'):
-            self.max_high_median_line.set_data(range(len(df)), df['max_high_median'])
-            self.max_high_median_line.set_visible(True)
-        else:
-            self.max_high_median_line.set_visible(False)
-        
-
-        
         # Update peaks
         if 'peaks_min' in df.columns and self.get_line_visibility('peaks_min'):
-            min_peaks = df[df['peaks_min'] == 1]
-            self.peaks_min_inf.set_data(min_peaks.index, min_peaks['bidclose'])
+            peaks_min_x = []
+            peaks_min_y = []
+            for i, val in enumerate(df['peaks_min']):
+                if not pd.isna(val) and val == 1:
+                    peaks_min_x.append(i)
+                    peaks_min_y.append(df['bidclose'].iloc[i])
+            self.peaks_min_inf.set_data(peaks_min_x, peaks_min_y)
             self.peaks_min_inf.set_visible(True)
         else:
             self.peaks_min_inf.set_visible(False)
             
         if 'peaks_max' in df.columns and self.get_line_visibility('peaks_max'):
-            max_peaks = df[df['peaks_max'] == 1]
-            self.peaks_max_inf.set_data(max_peaks.index, max_peaks['bidclose'])
+            peaks_max_x = []
+            peaks_max_y = []
+            for i, val in enumerate(df['peaks_max']):
+                if not pd.isna(val) and val == 1:
+                    peaks_max_x.append(i)
+                    peaks_max_y.append(df['bidclose'].iloc[i])
+            self.peaks_max_inf.set_data(peaks_max_x, peaks_max_y)
             self.peaks_max_inf.set_visible(True)
         else:
             self.peaks_max_inf.set_visible(False)
-        
-        # Update signals
-        if 'signal' in df.columns:
-            if self.get_line_visibility('buy_signals'):
-                buy_signals = df[df['signal'] == 1]
-                self.trigger_buy.set_data(buy_signals.index, buy_signals['bidclose'])
-                self.trigger_buy.set_visible(True)
-            else:
-                self.trigger_buy.set_visible(False)
-                
-            if self.get_line_visibility('sell_signals'):
-                sell_signals = df[df['signal'] == -1]
-                self.trigger_sell.set_data(sell_signals.index, sell_signals['bidclose'])
-                self.trigger_sell.set_visible(True)
-            else:
-                self.trigger_sell.set_visible(False)
-        else:
-            self.trigger_buy.set_visible(False)
-            self.trigger_sell.set_visible(False)
-        print(f"DEBUG: Signals updated")
-        
-        # Update flat zones
-
-        
-        # Update statistics panel
-        self.update_statistics(df)
-        
-        print(f"DEBUG: Trend analysis indicators updated")
         
         # Update plot limits with better zoom handling
         if len(df) > 0:
@@ -584,23 +447,6 @@ class DataVisualizer:
         # Update title
         self.ax.set_title(f"{self.current_file} - {len(df)} candles", color='white', fontsize=12)
         
-        # Add trend indicator if available
-        if 'trend' in df.columns and len(df) > 0:
-            current_trend = df['trend'].iloc[-1]
-            trend_color = '#00ff00' if current_trend == 'BULL' else '#ff0000' if current_trend == 'BEAR' else '#ffff00'
-            trend_text = f'Trend: {current_trend}'
-            
-            # Remove existing trend text if any
-            for artist in self.ax.get_children():
-                if hasattr(artist, 'get_text'):
-                    text_content = artist.get_text()
-                    if isinstance(text_content, str) and 'Trend:' in text_content:
-                        artist.remove()
-            
-            # Add new trend indicator
-            self.ax.text(0.02, 0.98, trend_text, transform=self.ax.transAxes, 
-                        fontsize=12, color=trend_color, weight='bold',
-                        bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
         
         # Redraw canvas
         self.canvas.draw()
@@ -792,47 +638,6 @@ class DataVisualizer:
         else:
             self.status_var.set("No data available for full view")
     
-    def update_trend_visualization(self, df):
-        """Update trend visualization with background colors"""
-        try:
-            # Remove existing trend backgrounds
-            for artist in self.ax.get_children():
-                if hasattr(artist, 'get_label'):
-                    label_value = artist.get_label()
-                    if isinstance(label_value, str) and 'Trend Background' in label_value:
-                        artist.remove()
-            
-            # Get current trend safely
-            if 'trend' not in df.columns or len(df) == 0:
-                return
-            current_trend = df['trend'].iloc[-1]
-            
-            # Add trend background color
-            # Compute safe price range for background
-            prices_bg = df['bidclose'].dropna() if 'bidclose' in df.columns else pd.Series([], dtype=float)
-            if len(prices_bg) == 0:
-                bg_min, bg_max = 0.0, 1.0
-            else:
-                bg_min = float(prices_bg.min())
-                bg_max = float(prices_bg.max())
-            if not np.isfinite(bg_min) or not np.isfinite(bg_max) or bg_max <= bg_min:
-                bg_max = bg_min + 1e-6
-
-            if current_trend == 'BULL':
-                # Green background for bullish trend
-                self.ax.axhspan(bg_min, bg_max, 
-                               alpha=0.1, color='green', label='Trend Background - BULL')
-            elif current_trend == 'BEAR':
-                # Red background for bearish trend
-                self.ax.axhspan(bg_min, bg_max, 
-                               alpha=0.1, color='red', label='Trend Background - BEAR')
-            elif current_trend == 'FLAT':
-                # Yellow/gray background for flat trend
-                self.ax.axhspan(bg_min, bg_max, 
-                               alpha=0.1, color='yellow', label='Trend Background - FLAT')
-            
-        except Exception as e:
-            print(f"Error updating trend visualization: {e}")
     
     def run(self):
         """Start the GUI application"""
@@ -856,7 +661,7 @@ class DataVisualizer:
 
 def run_single_visualizer():
     """Run the single window visualizer"""
-    visualizer = DataVisualizer()
+    visualizer = TradingVisualizer()
     visualizer.run()
 
 if __name__ == "__main__":

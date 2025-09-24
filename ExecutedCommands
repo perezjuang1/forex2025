@@ -1,0 +1,4 @@
+env1\Scripts\python.exe -m pip install -r requirements.txt
+env1\Scripts\python.exe -m ensurepip --upgrade
+env1\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+& c:/gits/forex2025/env1/Scripts/python.exe c:/gits/forex2025/TradingSystem.py

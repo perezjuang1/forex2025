@@ -1,4 +1,4 @@
-from ConnectionFxcm import RobotConnection
+from FxcmConnection import RobotConnection
 from PriceAnalyzer import PriceAnalyzer
 import datetime as dt
 import time
@@ -6,7 +6,7 @@ import numpy as np
 import traceback
 import threading
 import multiprocessing
-from ConfigurationOperation import TradingConfig
+from TradingConfiguration import TradingConfig
 
 class TradingSystem:
     def __init__(self, days, timeframe=None, instrument="EUR/USD"):
@@ -25,7 +25,7 @@ class TradingSystem:
 
     def __del__(self):
         print('Object gets destroyed')
-        if self.connection:
+        if hasattr(self, 'connection') and self.connection:
             self.connection.logout()
 
     def start_trade_monitor(self):    
@@ -56,42 +56,38 @@ class TradingSystem:
             df = self.priceAnalyzer.set_indicators(df)
             df = self.priceAnalyzer.set_signals_to_trades(df)      
             self.priceAnalyzer.triggers_trades_open(df)
-            #self.priceAnalyzer.triggers_trades_close(df)
+            self.priceAnalyzer.triggers_trades_close(df)
             
-            # Save the processed data with signals to CSV
+            # Save price data with indicators if not empty
             if not df.empty:
                 self.priceAnalyzer.save_price_data_file(df)
-            
         except Exception as e:
             print(f"Exception in operation_detection: {str(e)}")
             print(traceback.format_exc())
-            raise 
 
 def run_trading_for_instrument(instrument):
-    while True:
-        trading = None
-        try:
-            time.sleep(5)
-            trading = TradingSystem(days=7, instrument=instrument)
-            trading.start_trade_monitor()
-        except Exception as e:
-            print(f"Fatal error occurred for {instrument}. Restarting Trading session...")
-            print(traceback.format_exc())
-            del trading
-            print("20 seconds to restart...")
-            time.sleep(20)
+    """Run the trading system for a specific instrument"""
+    try:
+        print(f"[LOG] Starting trading for {instrument} - {dt.datetime.now()}")
+        trading = TradingSystem(days=7, instrument=instrument)
+        trading.start_trade_monitor()
+    except Exception as e:
+        print(f"Fatal error occurred for {instrument}. Restarting Trading session...")
+        print(traceback.format_exc())
+        print("20 seconds to restart...")
+        time.sleep(20)
 
 def run_visualizer_for_instrument(instrument):
     """Run the visualizer for a specific instrument"""
     try:
-        from DataVisualizer import run_single_visualizer
+        from TradingVisualizer import run_single_visualizer
         run_single_visualizer()
     except Exception as e:
         print(f"Error running visualizer: {str(e)}")
         print(traceback.format_exc())
 
 if __name__ == "__main__":
-    from ConfigurationOperation import TradingConfig
+    from TradingConfiguration import TradingConfig
     instruments = TradingConfig.get_instruments()
     
     print("Starting Trading and Plotting System...")

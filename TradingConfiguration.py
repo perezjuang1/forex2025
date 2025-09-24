@@ -19,27 +19,23 @@ class TradingConfig:
     # ============================================================================
     
     # Column names for signal processing
-    signal_col = 'signal'
-    open_zone_col = 'trade_open_zone'
     peaks_min_col = 'peaks_min'
     peaks_max_col = 'peaks_max'
     
     # Peak detection tolerance
-    tolerance_peaks = 10
+        # Eliminados signal_col, open_zone_col y tolerance_peaks
     
     # ============================================================================
     # CONNECTION SETTINGS
     # ============================================================================
     
     # FXCM connection parameters
-    userid = "U10D2470792"
-    password = "i4Cea"
+    userid = "U10D2471243"
+    password = "Fkr5q"
     url = "http://www.fxcorporate.com/Hosts.jsp"
     connectiontype = "Demo"
     
     # Session and account settings
-    session = None
-    pin = None
     account = None
     
     # ============================================================================
@@ -47,19 +43,18 @@ class TradingConfig:
     # ============================================================================
     
     # Default instrument and timeframe
-    instrument_symbol = "EUR/USD"
     timeframe = "m1"  # Available periods: 'm1', 'm5', 'm15', 'm30', 'H1', 'H2', 'H3', 'H4', 'H6', 'H8', 'D1', 'W1', 'M1'
     
     # Position sizing and risk management
-    lots = 3
-    stop = 6
-    limit = 15
+    lots = 1  # Default lot size for trading
+    stop = None  # Stop loss in pips
+    limit = None  # Take profit in pips
     
     # Pegged order settings
-    peggedstop = 'Y'
-    peggedlimit = 'Y'
-    pegstoptype = 'M'
-    peglimittype = 'M'
+    peggedstop = None
+    pegstoptype = None
+    peggedlimit = None
+    peglimittype = None
     
     # Date format and time settings
     dateFormat = '%m.%d.%Y %H:%M:%S'
@@ -72,7 +67,7 @@ class TradingConfig:
     # ============================================================================
     
     # List of instruments to trade
-    instruments = ["EUR/USD", "GBP/USD", "EUR/JPY", "AUD/JPY", "EUR/CAD", "USD/JPY", "GBP/JPY", "USD/CHF"]
+    instruments = ["EUR/USD", "GBP/USD", "USD/JPY"]
     
     def __init__(self):
         """
@@ -101,8 +96,8 @@ class TradingConfig:
             'stop': cls.stop,
             'limit': cls.limit,
             'peggedstop': cls.peggedstop,
-            'peggedlimit': cls.peggedlimit,
             'pegstoptype': cls.pegstoptype,
+            'peggedlimit': cls.peggedlimit,
             'peglimittype': cls.peglimittype
         }
     
@@ -120,10 +115,7 @@ class TradingConfig:
     def get_strategy_params(cls) -> dict:
         """Get strategy parameters as a dictionary."""
         return {
-            'signal_col': cls.signal_col,
-            'open_zone_col': cls.open_zone_col,
             'peaks_min_col': cls.peaks_min_col,
-            'peaks_max_col': cls.peaks_max_col,
-            'tolerance_peaks': cls.tolerance_peaks
+            'peaks_max_col': cls.peaks_max_col
         }
 
