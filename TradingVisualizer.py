@@ -8,6 +8,8 @@ import warnings
 import os
 import glob
 from datetime import datetime
+import threading
+import time
 
 class TradingVisualizer:
     def __init__(self):
@@ -28,6 +30,12 @@ class TradingVisualizer:
         # Initialize data attributes
         self.current_data = None
         self.current_file = None
+        
+        # Initialize auto-update variables
+        self.update_interval = 120  # 2 minutes in seconds
+        self.auto_update_enabled = True
+        self.stop_update = False
+        self.update_thread = None
         
         self.setup_gui()
         
@@ -723,6 +731,9 @@ class TradingVisualizer:
         # Schedule initial data load after GUI is ready
         if self.csv_files:
             self.root.after(100, self._load_initial_data)
+        
+        # Start auto-update thread
+        self.start_auto_update()
         
         # Start the main loop
         self.root.mainloop()

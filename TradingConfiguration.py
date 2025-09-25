@@ -21,9 +21,10 @@ class TradingConfig:
     # Column names for signal processing
     peaks_min_col = 'peaks_min'
     peaks_max_col = 'peaks_max'
+    signal_col = 'signal'  # Column name for trading signals
     
     # Peak detection tolerance
-        # Eliminados signal_col, open_zone_col y tolerance_peaks
+        # Eliminados open_zone_col y tolerance_peaks
     
     # ============================================================================
     # CONNECTION SETTINGS
@@ -47,14 +48,15 @@ class TradingConfig:
     
     # Position sizing and risk management
     lots = 1  # Default lot size for trading
-    stop = None  # Stop loss in pips
-    limit = None  # Take profit in pips
+    stop = 10  # Stop loss in pips
+    limit = 30  # Take profit in pips
     
     # Pegged order settings
-    peggedstop = None
-    pegstoptype = None
-    peggedlimit = None
-    peglimittype = None
+    peggedstop = 'Y'
+    peggedlimit = 'Y'
+
+    pegstoptype = 'M'
+    peglimittype = 'M'
     
     # Date format and time settings
     dateFormat = '%m.%d.%Y %H:%M:%S'
