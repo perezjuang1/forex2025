@@ -197,16 +197,16 @@ class PriceAnalyzer:
         
         # Calculate rolling medians
         if 'bidhigh' in df.columns:
-            df['median_high'] = df['bidhigh'].rolling(window=window, min_periods=1).median()
+            df['median_high'] = df['bidhigh'].rolling(window=window, min_periods=10).median()
         
         if 'bidlow' in df.columns:
-            df['median_low'] = df['bidlow'].rolling(window=window, min_periods=1).median()
+            df['median_low'] = df['bidlow'].rolling(window=window, min_periods=10).median()
         
         if 'bidclose' in df.columns:
-            df['median_close'] = df['bidclose'].rolling(window=window, min_periods=1).median()
+            df['median_close'] = df['bidclose'].rolling(window=window, min_periods=10).median()
         
         if 'bidopen' in df.columns:
-            df['median_open'] = df['bidopen'].rolling(window=window, min_periods=1).median()
+            df['median_open'] = df['bidopen'].rolling(window=window, min_periods=10).median()
         
         return df
 

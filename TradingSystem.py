@@ -93,6 +93,18 @@ if __name__ == "__main__":
     print("Starting Trading and Plotting System...")
     print(f"Instruments: {instruments}")
     
+    # Ask user if they want to start the trade monitor
+    start_monitor = input("Start independent trade monitor? (y/n): ").lower().strip()
+    monitor_process = None
+    
+    if start_monitor == 'y':
+        try:
+            from TradeMonitorLauncher import start_independent_monitor
+            monitor_process = start_independent_monitor()
+            print("Trade Monitor started successfully!")
+        except Exception as e:
+            print(f"Failed to start Trade Monitor: {e}")
+    
     # Start trading threads
     trading_threads = []
     for instrument in instruments:
@@ -116,4 +128,9 @@ if __name__ == "__main__":
         if visualizer_process.is_alive():
             visualizer_process.terminate()
             visualizer_process.join()
+        # Terminate monitor process if running
+        if monitor_process and monitor_process.is_alive():
+            monitor_process.terminate()
+            monitor_process.join()
+            print("Trade Monitor terminated.")
         print("All processes terminated.") 
