@@ -1,4 +1,3 @@
-from FxcmConnection import RobotConnection
 from PriceAnalyzer import PriceAnalyzer
 import datetime as dt
 import time
@@ -51,7 +50,31 @@ class TradingSystem:
 
     def operation_detection(self, timeframe): 
         try:
-            print(f"[LOG] Starting operation_detection - timeframe: {timeframe} - {dt.datetime.now()}")
+            # Check if instrument is suspended
+            if self.priceAnalyzer.is_instrument_suspended():
+                print(f"❌ {self.instrument}: SUSPENDIDO → Esperando reactivación")
+                self.priceAnalyzer.wait_for_instrument_availability()
+                return
+            
+            # Check instrument availability before processing
+            availability_info = self.priceAnalyzer.check_instrument_availability()
+            if availability_info['should_suspend']:
+                market_status = availability_info['market_status']
+                next_open = market_status.get('next_open', 'Unknown')
+                if next_open and hasattr(next_open, 'strftime'):
+                    next_time = next_open.strftime('%H:%M UTC')
+                elif isinstance(next_open, str):
+                    next_time = next_open
+                else:
+                    next_time = "Unknown"
+                print(f"❌ {self.instrument}: No disponible → SUSPENDIDO hasta {next_time}")
+                self.priceAnalyzer.handle_instrument_suspension(availability_info)
+                return
+            
+            # Show that instrument is operating normally
+            print(f"✅ {self.instrument}: Disponible → Opera normal")
+            
+            # Process trading data
             df = self.priceAnalyzer.get_price_data(instrument=self.instrument, timeframe=timeframe, days=self.days, connection=self.connection)
             df = self.priceAnalyzer.set_indicators(df)
             df = self.priceAnalyzer.set_signals_to_trades(df)      
@@ -62,19 +85,18 @@ class TradingSystem:
             if not df.empty:
                 self.priceAnalyzer.save_price_data_file(df)
         except Exception as e:
-            print(f"Exception in operation_detection: {str(e)}")
+            print(f"❌ {self.instrument}: ERROR → {str(e)}")
             print(traceback.format_exc())
 
 def run_trading_for_instrument(instrument):
     """Run the trading system for a specific instrument"""
     try:
-        print(f"[LOG] Starting trading for {instrument} - {dt.datetime.now()}")
+        print(f"STARTING {instrument}")
         trading = TradingSystem(days=7, instrument=instrument)
         trading.start_trade_monitor()
     except Exception as e:
-        print(f"Fatal error occurred for {instrument}. Restarting Trading session...")
+        print(f"FATAL ERROR {instrument}: Restarting in 20s...")
         print(traceback.format_exc())
-        print("20 seconds to restart...")
         time.sleep(20)
 
 def run_visualizer_for_instrument(instrument):
@@ -89,12 +111,55 @@ def run_visualizer_for_instrument(instrument):
 if __name__ == "__main__":
     from TradingConfiguration import TradingConfig
     instruments = TradingConfig.get_instruments()
+    schedules = TradingConfig.get_trading_schedules()
+    current_status = TradingConfig.get_active_instruments_for_time()
     
     print("Starting Trading and Plotting System...")
-    print(f"Instruments: {instruments}")
+    print(f"Total instruments: {len(instruments)}")
+    print("\n=== TRADING GROUPS CONFIGURATION ===")
+    
+    for group_key, group_config in schedules.items():
+        print(f"\n{group_config['name']} ({group_key}):")
+        print(f"  Description: {group_config['description']}")
+        print(f"  Trading hours: {group_config['optimal_hours_utc']['start']:02d}:00-{group_config['optimal_hours_utc']['end']:02d}:00 UTC")
+        print(f"  Instruments ({len(group_config['instruments'])}):")
+        for inst in group_config['instruments']:
+            print(f"    - {inst}")
+    
+    print(f"\n=== CURRENT STATUS (UTC: {dt.datetime.now().strftime('%H:%M')}) ===")
+    if current_status['active_instruments']:
+        print(f"ACTIVE INSTRUMENTS ({current_status['active_count']}):")
+        for item in current_status['active_instruments']:
+            print(f"  ✓ {item['instrument']} ({item['group_name']})")
+    
+    if current_status['inactive_instruments']:
+        print(f"\nINACTIVE INSTRUMENTS ({current_status['inactive_count']}):")
+        for item in current_status['inactive_instruments']:
+            print(f"  - {item['instrument']} ({item['group_name']})")
+    
+    print(f"\nAll instruments: {instruments}")
+    
+    # Show initial availability status
+    print(f"\n=== ESTADO INICIAL DE INSTRUMENTOS ===")
+    from MarketHoursChecker import MarketHoursChecker
+    market_checker = MarketHoursChecker()
+    
+    for instrument in instruments:
+        market_status = market_checker.is_market_open(instrument)
+        if market_status['is_available']:
+            print(f"✅ {instrument}: Disponible → Opera normal")
+        else:
+            next_open = market_status.get('next_open', 'Unknown')
+            if next_open and hasattr(next_open, 'strftime'):
+                next_time = next_open.strftime('%H:%M UTC')
+            elif isinstance(next_open, str):
+                next_time = next_open
+            else:
+                next_time = "Unknown"
+            print(f"❌ {instrument}: No disponible → SUSPENDIDO hasta {next_time}")
     
     # Ask user if they want to start the trade monitor
-    start_monitor = input("Start independent trade monitor? (y/n): ").lower().strip()
+    start_monitor = input("\nStart independent trade monitor? (y/n): ").lower().strip()
     monitor_process = None
     
     if start_monitor == 'y':

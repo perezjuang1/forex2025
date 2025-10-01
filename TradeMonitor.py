@@ -13,31 +13,39 @@ try:
     ROBOT_CONNECTION_AVAILABLE = True
 except ImportError:
     ROBOT_CONNECTION_AVAILABLE = False
-    print("[TRADE MONITOR] Warning: RobotConnection not available - forex trading features will be disabled")
+    print("[TRADE MONITOR] Warning: RobotConnection not available - forex tr    def _should_auto_close_profit_trade(self, tracker):
+        """Determine if profit trade should be auto-closed"""
+        # Close if we have 2 consecutive declines or if we've lost more than 50% of max profits
+        current_pips = tracker['current_pips']
+        max_pips = tracker['max_pips']
+        lost_percentage = (max_pips - current_pips) / max_pips if max_pips > 0 else 0
+        
+        return (tracker['declining_count'] >= 2 and max_pips > 0) or (lost_percentage >= 0.5 and max_pips > 15)
+g features will be disabled")
 
 
 class TradeMonitor:
     """
     Independent trade monitor that validates open operations every minute.
-    Only activates tracking when a position reaches at least 4 pips in profit.
-    Tracks pip gains and automatically closes trades when pips start declining from peak.
+    Activates profit protection when position reaches at least 15 pips in profit.
+    Activates loss protection when position reaches -5 pips or more in loss.
+    Tracks pip gains/losses and automatically closes trades when pips start declining from peak (profit) or declining further into loss.
     """
     
     def __init__(self):
         self.monitor_log_file = os.path.join('logs', 'trade_monitor.csv')
-        self.pip_tracker = {}  # {trade_id: {'max_pips': float, 'current_pips': float, 'open_price': float, 'side': str, 'instrument': str}}
+        self.pip_tracker = {}  # {trade_id: {'max_pips': float, 'current_pips': float, 'open_price': float, 'side': str, 'instrument': str, 'protection_type': str, 'min_pips': float}}
         self.is_running = False
         self._setup_logging()
         self._ensure_monitor_log_file()
         
         if ROBOT_CONNECTION_AVAILABLE:
-            self.robotconnection = RobotConnection()
+            self.robotconnection = RobotConnection(instrument="TRADE_MONITOR")
             self.connection = self.robotconnection.getConnection()
-            self._log_message("[TRADE MONITOR] Connection established successfully")
         else:
             self.robotconnection = None
             self.connection = None
-            self._log_message("[TRADE MONITOR] No connection available - running in simulation mode", level='warning')
+            self._log_message("[TRADE MONITOR] No connection - simulation mode", level='warning')
 
     def _setup_logging(self):
         """Setup logging for the trade monitor"""
@@ -52,15 +60,11 @@ class TradeMonitor:
             file_handler = logging.FileHandler(log_file, encoding='utf-8')
             file_handler.setLevel(logging.INFO)
             
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging.INFO)
-            
+            # Only log to file, not console to reduce spam
             formatter = logging.Formatter('%(asctime)s - %(levelname)s %(message)s')
             file_handler.setFormatter(formatter)
-            console_handler.setFormatter(formatter)
             
             self.logger.addHandler(file_handler)
-            self.logger.addHandler(console_handler)
 
     def _log_message(self, message: str, level: str = 'info'):
         """Log messages with single line format"""
@@ -266,13 +270,18 @@ class TradeMonitor:
         # Calculate current pips
         current_pips = self.calculate_pips(instrument, side, open_price, current_price)
         
-        # Check if trade should be tracked (only activate when position has at least 4 pips profit)
+        # Check if trade should be tracked (activate on 15+ pips profit OR -5 pips loss)
         if trade_id not in self.pip_tracker:
-            if current_pips < 4.0:
+            if current_pips >= 15.0:
+                # Activate profit protection
+                action, details = self._initialize_trade_tracker(trade_id, current_pips, open_price, side, instrument, 'PROFIT')
+            elif current_pips <= -5.0:
+                # Activate loss protection
+                action, details = self._initialize_trade_tracker(trade_id, current_pips, open_price, side, instrument, 'LOSS')
+            else:
                 # Trade doesn't meet activation threshold yet - skip monitoring
-                self._log_message(f"[TRADE MONITOR] {trade_id} | {instrument} | {side} | Pips: {current_pips} | Status: WAITING (needs 4+ pips to activate)")
+                self._log_message(f"[TRADE MONITOR] {trade_id} | {instrument} | {side} | Pips: {current_pips} | Status: WAITING (needs 15+ pips profit OR -5 pips loss to activate)")
                 return
-            action, details = self._initialize_trade_tracker(trade_id, current_pips, open_price, side, instrument)
         else:
             action, details = self._update_trade_tracker(trade_id, current_pips, instrument, side)
         
@@ -287,18 +296,23 @@ class TradeMonitor:
         
         self._log_message(f"[TRADE MONITOR] {trade_id} | {instrument} | {side} | Pips: {current_pips} | Max: {max_pips} | Action: {action}")
 
-    def _initialize_trade_tracker(self, trade_id, current_pips, open_price, side, instrument):
-        """Initialize tracking for a new trade (only when it reaches 4+ pips profit)"""
+    def _initialize_trade_tracker(self, trade_id, current_pips, open_price, side, instrument, protection_type):
+        """Initialize tracking for a new trade (profit protection at 15+ pips OR loss protection at -5 pips)"""
         self.pip_tracker[trade_id] = {
-            'max_pips': current_pips,
+            'max_pips': current_pips if protection_type == 'PROFIT' else current_pips,
+            'min_pips': current_pips if protection_type == 'LOSS' else current_pips,
             'current_pips': current_pips,
             'open_price': open_price,
             'side': side,
             'instrument': instrument,
-            'declining_count': 0
+            'declining_count': 0,
+            'protection_type': protection_type
         }
         action = 'TRACK_START'
-        details = f'Started tracking trade at 4+ pips threshold - Initial pips: {current_pips}'
+        if protection_type == 'PROFIT':
+            details = f'Started PROFIT protection at 15+ pips threshold - Initial pips: {current_pips}'
+        else:
+            details = f'Started LOSS protection at -5 pips threshold - Initial pips: {current_pips}'
         return action, details
 
     def _update_trade_tracker(self, trade_id, current_pips, instrument, side):
@@ -308,14 +322,25 @@ class TradeMonitor:
         
         # Update current pips
         tracker['current_pips'] = current_pips
+        protection_type = tracker.get('protection_type', 'PROFIT')
         
-        # Determine action based on pip movement
-        if current_pips > tracker['max_pips']:
-            return self._handle_new_pip_high(tracker, current_pips)
-        elif current_pips < previous_pips:
-            return self._handle_pip_decline(tracker, current_pips, trade_id, instrument, side)
+        # Determine action based on protection type and pip movement
+        if protection_type == 'PROFIT':
+            # Profit protection logic
+            if current_pips > tracker['max_pips']:
+                return self._handle_new_pip_high(tracker, current_pips)
+            elif current_pips < previous_pips:
+                return self._handle_pip_decline(tracker, current_pips, trade_id, instrument, side)
+            else:
+                return self._handle_stable_pips(tracker, current_pips)
         else:
-            return self._handle_stable_pips(tracker, current_pips)
+            # Loss protection logic
+            if current_pips < tracker['min_pips']:
+                return self._handle_new_pip_low(tracker, current_pips, trade_id, instrument, side)
+            elif current_pips > previous_pips:
+                return self._handle_loss_recovery(tracker, current_pips)
+            else:
+                return self._handle_stable_loss_pips(tracker, current_pips)
 
     def _handle_new_pip_high(self, tracker, current_pips):
         """Handle when trade reaches new pip high"""
@@ -348,9 +373,49 @@ class TradeMonitor:
         details = f'Monitoring - Current: {current_pips}, Max: {tracker["max_pips"]}'
         return action, details
 
+    def _handle_new_pip_low(self, tracker, current_pips, trade_id, instrument, side):
+        """Handle when trade reaches new pip low (deeper loss)"""
+        previous_min = tracker['min_pips']
+        tracker['min_pips'] = current_pips
+        tracker['declining_count'] += 1
+        action = 'NEW_LOW'
+        details = f'New pip low reached: {current_pips} (previous min: {previous_min}, declining count: {tracker["declining_count"]})'
+        
+        # Close trade if conditions are met (3 consecutive deeper losses)
+        if self._should_auto_close_loss_trade(tracker):
+            self._log_message(f"[TRADE MONITOR] AUTO-CLOSING loss trade {trade_id} - Pips declined to {current_pips} from {previous_min}")
+            success = self.close_trade(trade_id, instrument, side)
+            action = 'AUTO_CLOSE_LOSS'
+            details = f'Auto-closed due to loss decline to {current_pips} (Success: {success})'
+        
+        return action, details
+
+    def _handle_loss_recovery(self, tracker, current_pips):
+        """Handle when pips are recovering from loss"""
+        tracker['declining_count'] = 0
+        action = 'RECOVERY'
+        details = f'Loss recovery - Current: {current_pips}, Min: {tracker["min_pips"]}'
+        return action, details
+
+    def _handle_stable_loss_pips(self, tracker, current_pips):
+        """Handle when loss pips are stable (not getting worse)"""
+        tracker['declining_count'] = 0
+        action = 'MONITOR_LOSS'
+        details = f'Monitoring loss - Current: {current_pips}, Min: {tracker["min_pips"]}'
+        return action, details
+
     def _should_auto_close_trade(self, tracker):
-        """Determine if trade should be auto-closed"""
-        return tracker['declining_count'] >= 2 and tracker['max_pips'] > 0
+        """Determine if profit trade should be auto-closed"""
+        # Close if we have 3 consecutive declines or if we've lost more than 50% of max profits
+        current_pips = tracker['current_pips']
+        max_pips = tracker['max_pips']
+        lost_percentage = (max_pips - current_pips) / max_pips if max_pips > 0 else 0
+        
+        return (tracker['declining_count'] >= 3 and max_pips > 0) or (lost_percentage >= 0.5 and max_pips > 15)
+
+    def _should_auto_close_loss_trade(self, tracker):
+        """Determine if loss trade should be auto-closed"""
+        return tracker['declining_count'] >= 3 and tracker['min_pips'] < 0
 
     def start_monitoring(self):
         """Start the monitoring loop"""

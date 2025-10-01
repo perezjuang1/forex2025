@@ -25,6 +25,9 @@ class TradingVisualizer:
             'signals': tk.BooleanVar(value=True),
             'medians': tk.BooleanVar(value=True),
             'ema_200': tk.BooleanVar(value=True),
+            'ema_100': tk.BooleanVar(value=True),
+            'ema_80': tk.BooleanVar(value=True),
+            'liquidity_zones': tk.BooleanVar(value=True),
         }
         
         # Initialize data attributes
@@ -170,6 +173,9 @@ class TradingVisualizer:
             ('signals', 'Signals'),
             ('medians', 'Medians'),
             ('ema_200', 'EMA 200'),
+            ('ema_100', 'EMA 100'),
+            ('ema_80', 'EMA 80'),
+            ('liquidity_zones', 'Liquidity Zones'),
         ]
         
         # Create checkboxes in a grid layout
@@ -211,7 +217,9 @@ class TradingVisualizer:
             ('total_peaks', 'Total Peaks:'),
             ('min_peaks', 'Min Peaks:'),
             ('max_peaks', 'Max Peaks:'),
-
+            ('high_liquidity', 'High Liquidity:'),
+            ('low_liquidity', 'Low Liquidity:'),
+            ('avg_liquidity', 'Avg Liquidity:'),
         ]
         
         for i, (key, label) in enumerate(stats_configs):
@@ -238,18 +246,25 @@ class TradingVisualizer:
             total_max_peaks = df['peaks_max'].sum() if 'peaks_max' in df.columns else 0
             total_peaks = total_min_peaks + total_max_peaks
             
-            # Calculate flat zones statistics
-            
-            
-            # Calculate percentage of flat zones
-            total_rows = len(df)
-    
+            # Calculate liquidity statistics
+            if 'high_liquidity_period' in df.columns and 'low_liquidity_period' in df.columns:
+                high_liq_count = df['high_liquidity_period'].sum()
+                low_liq_count = df['low_liquidity_period'].sum()
+                high_liq_pct = (high_liq_count / len(df) * 100) if len(df) > 0 else 0
+                low_liq_pct = (low_liq_count / len(df) * 100) if len(df) > 0 else 0
+                avg_liquidity = df['liquidity_score'].mean() if 'liquidity_score' in df.columns else 0
+            else:
+                high_liq_pct = 0
+                low_liq_pct = 0
+                avg_liquidity = 0
             
             # Update labels
             self.stats_labels['total_peaks'].config(text=str(total_peaks))
             self.stats_labels['min_peaks'].config(text=str(total_min_peaks))
             self.stats_labels['max_peaks'].config(text=str(total_max_peaks))
-            
+            self.stats_labels['high_liquidity'].config(text=f"{high_liq_pct:.1f}%")
+            self.stats_labels['low_liquidity'].config(text=f"{low_liq_pct:.1f}%")
+            self.stats_labels['avg_liquidity'].config(text=f"{avg_liquidity:.0f}")
             
         except Exception as e:
             print(f"Error updating statistics: {e}")
@@ -278,11 +293,11 @@ class TradingVisualizer:
         self.median_close_line, = self.ax.plot([], [], linestyle='--', color='#00ffff', label='Median Close', linewidth=1, alpha=0.7)
         self.median_open_line, = self.ax.plot([], [], linestyle='--', color='#ff00ff', label='Median Open', linewidth=1, alpha=0.7)
         
-        # EMA 200 line
+        # EMA lines
         self.ema_200_line, = self.ax.plot([], [], linestyle='-', color='#ffa500', label='EMA 200', linewidth=2, alpha=0.8)
-        
+        self.ema_100_line, = self.ax.plot([], [], linestyle='-', color='#ff1493', label='EMA 100', linewidth=2, alpha=0.8)
+        self.ema_80_line, = self.ax.plot([], [], linestyle='-', color='#00bfff', label='EMA 80', linewidth=2, alpha=0.8)
 
-        
         # Distanced median zones (vertical bars)
 
         
@@ -460,13 +475,27 @@ class TradingVisualizer:
             self.median_close_line.set_visible(False)
             self.median_open_line.set_visible(False)
             
-        # Update EMA 200
+        # Update EMA lines
         if 'ema_200' in df.columns and self.get_line_visibility('ema_200'):
             x_data = range(len(df))
             self.ema_200_line.set_data(x_data, df['ema_200'])
             self.ema_200_line.set_visible(True)
         else:
             self.ema_200_line.set_visible(False)
+            
+        if 'ema_100' in df.columns and self.get_line_visibility('ema_100'):
+            x_data = range(len(df))
+            self.ema_100_line.set_data(x_data, df['ema_100'])
+            self.ema_100_line.set_visible(True)
+        else:
+            self.ema_100_line.set_visible(False)
+            
+        if 'ema_80' in df.columns and self.get_line_visibility('ema_80'):
+            x_data = range(len(df))
+            self.ema_80_line.set_data(x_data, df['ema_80'])
+            self.ema_80_line.set_visible(True)
+        else:
+            self.ema_80_line.set_visible(False)
             
         # Update signals
         if 'signal' in df.columns and self.get_line_visibility('signals'):
@@ -531,9 +560,15 @@ class TradingVisualizer:
         # Force refresh of the plot
         self.ax.figure.canvas.draw_idle()
         
+        # Update liquidity zones
+        if self.get_line_visibility('liquidity_zones'):
+            self.plot_liquidity_zones(df)
+        
+        # Update statistics with liquidity info
+        self.update_statistics(df)
+        
         # Update title
         self.ax.set_title(f"{self.current_file} - {len(df)} candles", color='white', fontsize=12)
-        
         
         # Redraw canvas
         self.canvas.draw()
@@ -562,6 +597,117 @@ class TradingVisualizer:
         # Add last zone
         zones.append((start, end))
         return zones
+    
+    def plot_liquidity_zones(self, df):
+        """Plot liquidity zones as vertical bars with labels"""
+        try:
+            if df is None or df.empty:
+                return
+            
+            # Remove existing liquidity zones first
+            artists_to_remove = []
+            for artist in self.ax.get_children():
+                if hasattr(artist, 'get_label'):
+                    label = artist.get_label()
+                    if label in ['High Liquidity', 'Low Liquidity', 'Session Overlap', 'Weekend/Low']:
+                        artists_to_remove.append(artist)
+            
+            for artist in artists_to_remove:
+                artist.remove()
+            
+            # Check if liquidity data exists
+            if 'high_liquidity_period' not in df.columns or 'low_liquidity_period' not in df.columns:
+                return
+            
+            # Get high liquidity zones
+            high_liq_indices = df.index[df['high_liquidity_period']].tolist()
+            if high_liq_indices:
+                high_liq_zones = self.create_continuous_zones(high_liq_indices)
+                self._plot_liquidity_zone_type(high_liq_zones, 'HIGH')
+            
+            # Get low liquidity zones  
+            low_liq_indices = df.index[df['low_liquidity_period']].tolist()
+            if low_liq_indices:
+                low_liq_zones = self.create_continuous_zones(low_liq_indices)
+                self._plot_liquidity_zone_type(low_liq_zones, 'LOW')
+            
+            # Get session overlap zones (best liquidity)
+            if 'session_overlap' in df.columns:
+                overlap_indices = df.index[df['session_overlap']].tolist()
+                if overlap_indices:
+                    overlap_zones = self.create_continuous_zones(overlap_indices)
+                    self._plot_liquidity_zone_type(overlap_zones, 'OVERLAP')
+            
+        except Exception as e:
+            print(f"Error plotting liquidity zones: {e}")
+    
+    def _plot_liquidity_zone_type(self, zones, zone_type):
+        """Plot specific type of liquidity zones"""
+        try:
+            if zone_type == 'HIGH':
+                color = '#90EE90'  # Light green
+                alpha = 0.2
+                label = 'High Liquidity'
+                text_color = '#006400'  # Dark green
+                y_position = 0.95
+            elif zone_type == 'LOW':
+                color = '#FFB6C1'  # Light pink/red
+                alpha = 0.3
+                label = 'Low Liquidity'
+                text_color = '#DC143C'  # Crimson
+                y_position = 0.05
+            elif zone_type == 'OVERLAP':
+                color = '#87CEEB'  # Sky blue
+                alpha = 0.25
+                label = 'Session Overlap'
+                text_color = '#4169E1'  # Royal blue
+                y_position = 0.90
+            else:
+                return
+            
+            current_ylim = self.ax.get_ylim()
+            y_text_pos = current_ylim[0] + (current_ylim[1] - current_ylim[0]) * y_position
+            
+            for start, end in zones:
+                # Draw vertical span
+                self.ax.axvspan(start, end, alpha=alpha, facecolor=color, label=label, 
+                               edgecolor=text_color, linewidth=0.5)
+                
+                # Add label for zones wider than 20 candles
+                if end - start > 20:
+                    mid_point = (start + end) / 2
+                    
+                    # Zone type specific labels
+                    if zone_type == 'HIGH':
+                        zone_text = 'HIGH LIQ'
+                    elif zone_type == 'LOW':
+                        zone_text = 'LOW LIQ'
+                    elif zone_type == 'OVERLAP':
+                        zone_text = 'OVERLAP'
+                    
+                    self.ax.text(mid_point, y_text_pos, zone_text, 
+                                ha='center', va='center',
+                                fontsize=8, fontweight='bold', 
+                                color=text_color,
+                                bbox=dict(boxstyle="round,pad=0.3", 
+                                         facecolor='white', alpha=0.8, 
+                                         edgecolor=text_color))
+            
+            # Update legend to avoid duplicates
+            handles, labels = self.ax.get_legend_handles_labels()
+            unique_labels = []
+            unique_handles = []
+            for handle, label in zip(handles, labels):
+                if label not in unique_labels:
+                    unique_labels.append(label)
+                    unique_handles.append(handle)
+            
+            self.ax.legend(unique_handles, unique_labels, 
+                          facecolor='#1a1a1a', edgecolor='white', 
+                          labelcolor='white', loc='upper left', fontsize=9)
+                    
+        except Exception as e:
+            print(f"Error plotting {zone_type} liquidity zones: {e}")
     
     def plot_median_zones(self, zones, median_type):
         """Plot zones as vertical bars with enhanced visualization"""
