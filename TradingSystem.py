@@ -29,8 +29,19 @@ class TradingSystem:
 
     def start_trade_monitor(self):    
         self.operation_detection(timeframe=self.timeframe)  
+        last_restart_hour = dt.datetime.now().hour
+        
         while True:            
-            currenttime = dt.datetime.now()  
+            currenttime = dt.datetime.now()
+            current_hour = currenttime.hour
+            
+            # Check if we need to restart (new hour)
+            if current_hour != last_restart_hour:
+                print(f"🔄 {self.instrument}: REINICIANDO SISTEMA → Nueva hora detectada ({currenttime.strftime('%H:%M')})")
+                self._restart_system()
+                last_restart_hour = current_hour
+                continue
+            
             if self.timeframe == "m1" and currenttime.second == 0:
                 self.operation_detection(timeframe=self.timeframe)    
                 time.sleep(1)                    
@@ -47,6 +58,30 @@ class TradingSystem:
                 self.operation_detection(timeframe=self.timeframe)
                 time.sleep(3540)
             time.sleep(1)
+
+    def _restart_system(self):
+        """Restart the trading system by reinitializing components"""
+        try:
+            print(f"🔄 {self.instrument}: Iniciando reinicio del sistema...")
+            
+            # Close existing connection
+            if hasattr(self, 'connection') and self.connection:
+                try:
+                    self.connection.logout()
+                    print(f"✅ {self.instrument}: Conexión cerrada")
+                except:
+                    pass
+            
+            # Reinitialize PriceAnalyzer
+            self.priceAnalyzer = PriceAnalyzer(self.days, self.instrument, self.timeframe)
+            self.connection = self.priceAnalyzer.connection
+            self.robotconnection = self.priceAnalyzer.robotconnection
+            
+            print(f"✅ {self.instrument}: Sistema reiniciado exitosamente")
+            
+        except Exception as e:
+            print(f"❌ {self.instrument}: ERROR en reinicio → {str(e)}")
+            print(traceback.format_exc())
 
     def operation_detection(self, timeframe): 
         try:

@@ -465,8 +465,8 @@ class PriceAnalyzer:
         if 'ema_200' in df.columns:
             df['ema_200_slope'] = ((df['ema_200'] - df['ema_200'].shift(slope_period)) / 
                                    df['ema_200'].shift(slope_period) * 100).fillna(0)
-            # Slope direction: 1=up, -1=down, 0=flat (more permissive threshold)
-            slope_threshold = 0.005  # 0.005% minimum slope (was 0.01%)
+            # Slope direction: 1=up, -1=down, 0=flat (more restrictive threshold)
+            slope_threshold = 0.01  # 0.01% minimum slope (was 0.005%)
             df['ema_200_trend'] = np.where(df['ema_200_slope'] > slope_threshold, 1,
                                           np.where(df['ema_200_slope'] < -slope_threshold, -1, 0))
 
@@ -482,8 +482,8 @@ class PriceAnalyzer:
             ema_max = np.maximum.reduce([df['ema_80'], df['ema_100'], df['ema_200']])
             ema_min = np.minimum.reduce([df['ema_80'], df['ema_100'], df['ema_200']])
             df['ema_spread'] = ema_max - ema_min
-            # EMAs not compressed if spread > 0.15*ATR14 (was 0.3)
-            df['emas_not_compressed'] = df['ema_spread'] > (0.15 * df['atr_14'])
+            # EMAs not compressed if spread > 0.20*ATR14 (was 0.15)
+            df['emas_not_compressed'] = df['ema_spread'] > (0.20 * df['atr_14'])
 
         # Advanced filters for signal quality
         
@@ -561,8 +561,8 @@ class PriceAnalyzer:
         df.loc[df['significant_range'], 'signal_score'] += 8
         df.loc[df['significant_body'], 'signal_score'] += 7
         
-        # High probability threshold (more permissive)
-        df['high_probability'] = df['signal_score'] >= 50  # Was 70, now 50
+        # High probability threshold (more restrictive)
+        df['high_probability'] = df['signal_score'] >= 60  # Was 50, now 60
         
         # Clean up temporary columns
         df = df.drop(columns=['prev_close'], errors='ignore')
