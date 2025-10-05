@@ -13,7 +13,69 @@ try:
     ROBOT_CONNECTION_AVAILABLE = True
 except ImportError:
     ROBOT_CONNECTION_AVAILABLE = False
-    print("[TRADE MONITOR] Warning: RobotConnection not available - forex tr    def _should_auto_close_profit_trade(self, tracker):
+    print("[TRADE MONITOR] Warning: RobotConnection not available - forex trading features will be disabled")
+
+
+class TradeMonitor:
+    """
+    Independent trade monitor that validates open operations every minute.
+    """
+    
+    def __init__(self):
+        self.connection = None
+        self.robotconnection = None
+        self.pip_tracker = {}  # Track pip progress for each trade
+        self._setup_logging()
+        
+        if ROBOT_CONNECTION_AVAILABLE:
+            try:
+                self.robotconnection = RobotConnection()
+                self.connection = self.robotconnection.getConnection()
+                self._log_message("[TRADE MONITOR] Connected to FXCM")
+            except Exception as e:
+                self._log_message(f"[TRADE MONITOR] Failed to connect to FXCM: {e}", level='error')
+                self.connection = None
+                self.robotconnection = None
+        else:
+            self._log_message("[TRADE MONITOR] RobotConnection not available - running in simulation mode")
+    
+    def _setup_logging(self):
+        """Setup logging for the trade monitor"""
+        if not os.path.exists('logs'):
+            os.makedirs('logs', exist_ok=True)
+        
+        self.logger = logging.getLogger('TradeMonitor')
+        self.logger.setLevel(logging.INFO)
+        
+        # Create file handler
+        log_file = f'logs/trade_monitor_{datetime.now().strftime("%Y%m%d")}.log'
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(logging.INFO)
+        
+        # Create console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        
+        # Create formatter
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+        
+        # Add handlers to logger
+        if not self.logger.handlers:
+            self.logger.addHandler(file_handler)
+            self.logger.addHandler(console_handler)
+    
+    def _log_message(self, message, level='info'):
+        """Log a message with the specified level"""
+        if level == 'info':
+            self.logger.info(message)
+        elif level == 'error':
+            self.logger.error(message)
+        elif level == 'warning':
+            self.logger.warning(message)
+    
+    def _should_auto_close_profit_trade(self, tracker):
         """Determine if profit trade should be auto-closed"""
         # Close if we have 2 consecutive declines or if we've lost more than 50% of max profits
         current_pips = tracker['current_pips']
@@ -21,7 +83,6 @@ except ImportError:
         lost_percentage = (max_pips - current_pips) / max_pips if max_pips > 0 else 0
         
         return (tracker['declining_count'] >= 2 and max_pips > 0) or (lost_percentage >= 0.5 and max_pips > 15)
-g features will be disabled")
 
 
 class TradeMonitor:

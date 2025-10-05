@@ -17,17 +17,17 @@ class TradingVisualizer:
         self.root.title("Trading Visualizer")
         self.csv_files = self.get_available_csv_files()
         
-        # Initialize visibility flags
+        # Initialize visibility flags (only for indicators actually used)
         self.visibility_flags = {
             'price': tk.BooleanVar(value=True),
             'peaks_min': tk.BooleanVar(value=True),
             'peaks_max': tk.BooleanVar(value=True),
             'signals': tk.BooleanVar(value=True),
-            'medians': tk.BooleanVar(value=True),
             'ema_200': tk.BooleanVar(value=True),
             'ema_100': tk.BooleanVar(value=True),
             'ema_80': tk.BooleanVar(value=True),
-            'liquidity_zones': tk.BooleanVar(value=True),
+            'median_max': tk.BooleanVar(value=True),
+            'median_min': tk.BooleanVar(value=True),
         }
         
         # Initialize data attributes
@@ -171,11 +171,11 @@ class TradingVisualizer:
             ('peaks_min', 'Min Peaks'),
             ('peaks_max', 'Max Peaks'),
             ('signals', 'Signals'),
-            ('medians', 'Medians'),
             ('ema_200', 'EMA 200'),
             ('ema_100', 'EMA 100'),
             ('ema_80', 'EMA 80'),
-            ('liquidity_zones', 'Liquidity Zones'),
+            ('median_max', 'Median Max'),
+            ('median_min', 'Median Min'),
         ]
         
         # Create checkboxes in a grid layout
@@ -193,7 +193,7 @@ class TradingVisualizer:
         
         # Add "Show All" and "Hide All" buttons
         button_frame = ttk.Frame(visibility_frame)
-        button_frame.grid(row=len(checkbox_configs)//2 + 1, column=0, columnspan=2, pady=(10, 0))
+        button_frame.grid(row=(len(checkbox_configs) + 1)//2, column=0, columnspan=2, pady=(10, 0))
         
         show_all_btn = ttk.Button(button_frame, text="Show All", command=self.show_all_lines)
         show_all_btn.pack(side=tk.LEFT, padx=(0, 5))
@@ -217,9 +217,7 @@ class TradingVisualizer:
             ('total_peaks', 'Total Peaks:'),
             ('min_peaks', 'Min Peaks:'),
             ('max_peaks', 'Max Peaks:'),
-            ('high_liquidity', 'High Liquidity:'),
-            ('low_liquidity', 'Low Liquidity:'),
-            ('avg_liquidity', 'Avg Liquidity:'),
+            ('channel_width', 'Channel Width:'),
         ]
         
         for i, (key, label) in enumerate(stats_configs):
@@ -246,25 +244,18 @@ class TradingVisualizer:
             total_max_peaks = df['peaks_max'].sum() if 'peaks_max' in df.columns else 0
             total_peaks = total_min_peaks + total_max_peaks
             
-            # Calculate liquidity statistics
-            if 'high_liquidity_period' in df.columns and 'low_liquidity_period' in df.columns:
-                high_liq_count = df['high_liquidity_period'].sum()
-                low_liq_count = df['low_liquidity_period'].sum()
-                high_liq_pct = (high_liq_count / len(df) * 100) if len(df) > 0 else 0
-                low_liq_pct = (low_liq_count / len(df) * 100) if len(df) > 0 else 0
-                avg_liquidity = df['liquidity_score'].mean() if 'liquidity_score' in df.columns else 0
-            else:
-                high_liq_pct = 0
-                low_liq_pct = 0
-                avg_liquidity = 0
+            # Calculate channel width
+            channel_width = "N/A"
+            if 'channel_width_pips' in df.columns:
+                avg_width = df['channel_width_pips'].mean()
+                if not pd.isna(avg_width):
+                    channel_width = f"{avg_width:.1f} pips"
             
             # Update labels
             self.stats_labels['total_peaks'].config(text=str(total_peaks))
             self.stats_labels['min_peaks'].config(text=str(total_min_peaks))
             self.stats_labels['max_peaks'].config(text=str(total_max_peaks))
-            self.stats_labels['high_liquidity'].config(text=f"{high_liq_pct:.1f}%")
-            self.stats_labels['low_liquidity'].config(text=f"{low_liq_pct:.1f}%")
-            self.stats_labels['avg_liquidity'].config(text=f"{avg_liquidity:.0f}")
+            self.stats_labels['channel_width'].config(text=channel_width)
             
         except Exception as e:
             print(f"Error updating statistics: {e}")
@@ -287,19 +278,14 @@ class TradingVisualizer:
         self.buy_signals, = self.ax.plot([], [], linestyle='', marker='^', color='#00ff00', label='Buy Signal', markersize=8)
         self.sell_signals, = self.ax.plot([], [], linestyle='', marker='v', color='#ff0000', label='Sell Signal', markersize=8)
         
-        # Median lines
-        self.median_high_line, = self.ax.plot([], [], linestyle='--', color='#ffff00', label='Median High', linewidth=1, alpha=0.7)
-        self.median_low_line, = self.ax.plot([], [], linestyle='--', color='#ff8c00', label='Median Low', linewidth=1, alpha=0.7)
-        self.median_close_line, = self.ax.plot([], [], linestyle='--', color='#00ffff', label='Median Close', linewidth=1, alpha=0.7)
-        self.median_open_line, = self.ax.plot([], [], linestyle='--', color='#ff00ff', label='Median Open', linewidth=1, alpha=0.7)
-        
         # EMA lines
         self.ema_200_line, = self.ax.plot([], [], linestyle='-', color='#ffa500', label='EMA 200', linewidth=2, alpha=0.8)
         self.ema_100_line, = self.ax.plot([], [], linestyle='-', color='#ff1493', label='EMA 100', linewidth=2, alpha=0.8)
         self.ema_80_line, = self.ax.plot([], [], linestyle='-', color='#00bfff', label='EMA 80', linewidth=2, alpha=0.8)
-
-        # Distanced median zones (vertical bars)
-
+        
+        # Channel lines (median max/min)
+        self.median_max_line, = self.ax.plot([], [], linestyle='--', color='#ff6b6b', label='Median Max', linewidth=2, alpha=0.9)
+        self.median_min_line, = self.ax.plot([], [], linestyle='--', color='#4ecdc4', label='Median Min', linewidth=2, alpha=0.9)
         
         # Legend
         self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', 
@@ -417,63 +403,31 @@ class TradingVisualizer:
         else:
             self.price_line.set_visible(False)
         
-        # Update peaks
-        if 'peaks_min' in df.columns and self.get_line_visibility('peaks_min'):
-            peaks_min_x = []
-            peaks_min_y = []
-            for i, val in enumerate(df['peaks_min']):
-                if not pd.isna(val) and val == 1:
-                    peaks_min_x.append(i)
-                    peaks_min_y.append(df['bidclose'].iloc[i])
-            self.peaks_min_inf.set_data(peaks_min_x, peaks_min_y)
-            self.peaks_min_inf.set_visible(True)
+        # Update peaks (only if enabled and data available)
+        if self.get_line_visibility('peaks_min') and 'peaks_min' in df.columns:
+            peaks_min_mask = (df['peaks_min'] == 1) & df['peaks_min'].notna()
+            if peaks_min_mask.any():
+                peaks_min_x = df.index[peaks_min_mask].tolist()
+                peaks_min_y = df.loc[peaks_min_mask, 'bidclose'].tolist()
+                self.peaks_min_inf.set_data(peaks_min_x, peaks_min_y)
+                self.peaks_min_inf.set_visible(True)
+            else:
+                self.peaks_min_inf.set_visible(False)
         else:
             self.peaks_min_inf.set_visible(False)
             
-        if 'peaks_max' in df.columns and self.get_line_visibility('peaks_max'):
-            peaks_max_x = []
-            peaks_max_y = []
-            for i, val in enumerate(df['peaks_max']):
-                if not pd.isna(val) and val == 1:
-                    peaks_max_x.append(i)
-                    peaks_max_y.append(df['bidclose'].iloc[i])
-            self.peaks_max_inf.set_data(peaks_max_x, peaks_max_y)
-            self.peaks_max_inf.set_visible(True)
+        if self.get_line_visibility('peaks_max') and 'peaks_max' in df.columns:
+            peaks_max_mask = (df['peaks_max'] == 1) & df['peaks_max'].notna()
+            if peaks_max_mask.any():
+                peaks_max_x = df.index[peaks_max_mask].tolist()
+                peaks_max_y = df.loc[peaks_max_mask, 'bidclose'].tolist()
+                self.peaks_max_inf.set_data(peaks_max_x, peaks_max_y)
+                self.peaks_max_inf.set_visible(True)
+            else:
+                self.peaks_max_inf.set_visible(False)
         else:
             self.peaks_max_inf.set_visible(False)
             
-        # Update medians
-        if self.get_line_visibility('medians'):
-            x_data = range(len(df))
-            
-            if 'median_high' in df.columns:
-                self.median_high_line.set_data(x_data, df['median_high'])
-                self.median_high_line.set_visible(True)
-            else:
-                self.median_high_line.set_visible(False)
-                
-            if 'median_low' in df.columns:
-                self.median_low_line.set_data(x_data, df['median_low'])
-                self.median_low_line.set_visible(True)
-            else:
-                self.median_low_line.set_visible(False)
-                
-            if 'median_close' in df.columns:
-                self.median_close_line.set_data(x_data, df['median_close'])
-                self.median_close_line.set_visible(True)
-            else:
-                self.median_close_line.set_visible(False)
-                
-            if 'median_open' in df.columns:
-                self.median_open_line.set_data(x_data, df['median_open'])
-                self.median_open_line.set_visible(True)
-            else:
-                self.median_open_line.set_visible(False)
-        else:
-            self.median_high_line.set_visible(False)
-            self.median_low_line.set_visible(False)
-            self.median_close_line.set_visible(False)
-            self.median_open_line.set_visible(False)
             
         # Update EMA lines
         if 'ema_200' in df.columns and self.get_line_visibility('ema_200'):
@@ -497,23 +451,42 @@ class TradingVisualizer:
         else:
             self.ema_80_line.set_visible(False)
             
-        # Update signals
-        if 'signal' in df.columns and self.get_line_visibility('signals'):
-            buy_x = []
-            buy_y = []
-            sell_x = []
-            sell_y = []
-            for i, val in enumerate(df['signal']):
-                if not pd.isna(val) and val == 1:  # Buy signal
-                    buy_x.append(i)
-                    buy_y.append(df['bidclose'].iloc[i])
-                elif not pd.isna(val) and val == -1:  # Sell signal
-                    sell_x.append(i)
-                    sell_y.append(df['bidclose'].iloc[i])
-            self.buy_signals.set_data(buy_x, buy_y)
-            self.sell_signals.set_data(sell_x, sell_y)
-            self.buy_signals.set_visible(True)
-            self.sell_signals.set_visible(True)
+        # Update channel lines (median max/min)
+        if 'median_max' in df.columns and self.get_line_visibility('median_max'):
+            x_data = range(len(df))
+            self.median_max_line.set_data(x_data, df['median_max'])
+            self.median_max_line.set_visible(True)
+        else:
+            self.median_max_line.set_visible(False)
+            
+        if 'median_min' in df.columns and self.get_line_visibility('median_min'):
+            x_data = range(len(df))
+            self.median_min_line.set_data(x_data, df['median_min'])
+            self.median_min_line.set_visible(True)
+        else:
+            self.median_min_line.set_visible(False)
+            
+        # Update signals (only if enabled and data available)
+        if self.get_line_visibility('signals') and 'signal' in df.columns:
+            # Buy signals
+            buy_mask = (df['signal'] == 1) & df['signal'].notna()
+            if buy_mask.any():
+                buy_x = df.index[buy_mask].tolist()
+                buy_y = df.loc[buy_mask, 'bidclose'].tolist()
+                self.buy_signals.set_data(buy_x, buy_y)
+                self.buy_signals.set_visible(True)
+            else:
+                self.buy_signals.set_visible(False)
+            
+            # Sell signals
+            sell_mask = (df['signal'] == -1) & df['signal'].notna()
+            if sell_mask.any():
+                sell_x = df.index[sell_mask].tolist()
+                sell_y = df.loc[sell_mask, 'bidclose'].tolist()
+                self.sell_signals.set_data(sell_x, sell_y)
+                self.sell_signals.set_visible(True)
+            else:
+                self.sell_signals.set_visible(False)
         else:
             self.buy_signals.set_visible(False)
             self.sell_signals.set_visible(False)
@@ -560,9 +533,6 @@ class TradingVisualizer:
         # Force refresh of the plot
         self.ax.figure.canvas.draw_idle()
         
-        # Update liquidity zones
-        if self.get_line_visibility('liquidity_zones'):
-            self.plot_liquidity_zones(df)
         
         # Update statistics with liquidity info
         self.update_statistics(df)
@@ -575,182 +545,6 @@ class TradingVisualizer:
     
 
     
-    def create_continuous_zones(self, indices):
-        """Create continuous zones from individual indices"""
-        if not indices:
-            return []
-        
-        zones = []
-        start = indices[0]
-        end = indices[0]
-        
-        for i in range(1, len(indices)):
-            if indices[i] == indices[i-1] + 1:
-                # Continuous
-                end = indices[i]
-            else:
-                # Gap found, save current zone
-                zones.append((start, end))
-                start = indices[i]
-                end = indices[i]
-        
-        # Add last zone
-        zones.append((start, end))
-        return zones
-    
-    def plot_liquidity_zones(self, df):
-        """Plot liquidity zones as vertical bars with labels"""
-        try:
-            if df is None or df.empty:
-                return
-            
-            # Remove existing liquidity zones first
-            artists_to_remove = []
-            for artist in self.ax.get_children():
-                if hasattr(artist, 'get_label'):
-                    label = artist.get_label()
-                    if label in ['High Liquidity', 'Low Liquidity', 'Session Overlap', 'Weekend/Low']:
-                        artists_to_remove.append(artist)
-            
-            for artist in artists_to_remove:
-                artist.remove()
-            
-            # Check if liquidity data exists
-            if 'high_liquidity_period' not in df.columns or 'low_liquidity_period' not in df.columns:
-                return
-            
-            # Get high liquidity zones
-            high_liq_indices = df.index[df['high_liquidity_period']].tolist()
-            if high_liq_indices:
-                high_liq_zones = self.create_continuous_zones(high_liq_indices)
-                self._plot_liquidity_zone_type(high_liq_zones, 'HIGH')
-            
-            # Get low liquidity zones  
-            low_liq_indices = df.index[df['low_liquidity_period']].tolist()
-            if low_liq_indices:
-                low_liq_zones = self.create_continuous_zones(low_liq_indices)
-                self._plot_liquidity_zone_type(low_liq_zones, 'LOW')
-            
-            # Get session overlap zones (best liquidity)
-            if 'session_overlap' in df.columns:
-                overlap_indices = df.index[df['session_overlap']].tolist()
-                if overlap_indices:
-                    overlap_zones = self.create_continuous_zones(overlap_indices)
-                    self._plot_liquidity_zone_type(overlap_zones, 'OVERLAP')
-            
-        except Exception as e:
-            print(f"Error plotting liquidity zones: {e}")
-    
-    def _plot_liquidity_zone_type(self, zones, zone_type):
-        """Plot specific type of liquidity zones"""
-        try:
-            if zone_type == 'HIGH':
-                color = '#90EE90'  # Light green
-                alpha = 0.2
-                label = 'High Liquidity'
-                text_color = '#006400'  # Dark green
-                y_position = 0.95
-            elif zone_type == 'LOW':
-                color = '#FFB6C1'  # Light pink/red
-                alpha = 0.3
-                label = 'Low Liquidity'
-                text_color = '#DC143C'  # Crimson
-                y_position = 0.05
-            elif zone_type == 'OVERLAP':
-                color = '#87CEEB'  # Sky blue
-                alpha = 0.25
-                label = 'Session Overlap'
-                text_color = '#4169E1'  # Royal blue
-                y_position = 0.90
-            else:
-                return
-            
-            current_ylim = self.ax.get_ylim()
-            y_text_pos = current_ylim[0] + (current_ylim[1] - current_ylim[0]) * y_position
-            
-            for start, end in zones:
-                # Draw vertical span
-                self.ax.axvspan(start, end, alpha=alpha, facecolor=color, label=label, 
-                               edgecolor=text_color, linewidth=0.5)
-                
-                # Add label for zones wider than 20 candles
-                if end - start > 20:
-                    mid_point = (start + end) / 2
-                    
-                    # Zone type specific labels
-                    if zone_type == 'HIGH':
-                        zone_text = 'HIGH LIQ'
-                    elif zone_type == 'LOW':
-                        zone_text = 'LOW LIQ'
-                    elif zone_type == 'OVERLAP':
-                        zone_text = 'OVERLAP'
-                    
-                    self.ax.text(mid_point, y_text_pos, zone_text, 
-                                ha='center', va='center',
-                                fontsize=8, fontweight='bold', 
-                                color=text_color,
-                                bbox=dict(boxstyle="round,pad=0.3", 
-                                         facecolor='white', alpha=0.8, 
-                                         edgecolor=text_color))
-            
-            # Update legend to avoid duplicates
-            handles, labels = self.ax.get_legend_handles_labels()
-            unique_labels = []
-            unique_handles = []
-            for handle, label in zip(handles, labels):
-                if label not in unique_labels:
-                    unique_labels.append(label)
-                    unique_handles.append(handle)
-            
-            self.ax.legend(unique_handles, unique_labels, 
-                          facecolor='#1a1a1a', edgecolor='white', 
-                          labelcolor='white', loc='upper left', fontsize=9)
-                    
-        except Exception as e:
-            print(f"Error plotting {zone_type} liquidity zones: {e}")
-    
-    def plot_median_zones(self, zones, median_type):
-        """Plot zones as vertical bars with enhanced visualization"""
-        try:
-            if median_type == 'min':
-                # Remove existing bars
-                for artist in self.ax.get_children():
-                    if hasattr(artist, 'get_label') and artist.get_label() == 'Near Min Low Median':
-                        artist.remove()
-                
-                # Add new bars with enhanced styling
-                for start, end in zones:
-                    self.ax.axvspan(start, end, alpha=0.4, color='#ff4444', 
-                                   label='Near Min Low Median', edgecolor='#cc0000', linewidth=1)
-                    
-                    # Add zone label in the middle
-                    mid_point = (start + end) / 2
-                    if end - start > 5:  # Only add label for zones wider than 5 points
-                        self.ax.text(mid_point, self.ax.get_ylim()[1] * 0.95, 
-                                    'SUPPORT', ha='center', va='top', 
-                                    fontsize=8, fontweight='bold', color='#cc0000',
-                                    bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
-            else:  # max
-                # Remove existing bars
-                for artist in self.ax.get_children():
-                    if hasattr(artist, 'get_label') and artist.get_label() == 'Near Max High Median':
-                        artist.remove()
-                
-                # Add new bars with enhanced styling
-                for start, end in zones:
-                    self.ax.axvspan(start, end, alpha=0.4, color='#00ff00', 
-                                   label='Near Max High Median', linewidth=1)
-                    
-                    # Add zone label in the middle
-                    mid_point = (start + end) / 2
-                    if end - start > 5:  # Only add label for zones wider than 5 points
-                        self.ax.text(mid_point, self.ax.get_ylim()[0] * 1.05, 
-                                    'RESISTANCE', ha='center', va='bottom', 
-                                    fontsize=8, fontweight='bold', color='#00cc00',
-                                    bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
-                    
-        except Exception as e:
-            print(f"Error plotting median zones: {e}")
     
 
     

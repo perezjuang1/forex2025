@@ -8,7 +8,6 @@ import logging
 import os
 import time
 from TradingConfiguration import TradingConfig
-from MarketHoursChecker import MarketHoursChecker
 
 try:
     from FxcmConnection import RobotConnection
@@ -31,8 +30,6 @@ class PriceAnalyzer:
         self.days = days
         self.trade_log_file = os.path.join('logs', 'triggers_trades_open.csv')
         self._last_signal_info = None  # holds context for logging after order open
-        self.market_checker = MarketHoursChecker()  # Initialize market hours checker
-        self._suspension_state = {'is_suspended': False, 'next_check_time': None, 'reason': ''}
         
         self._setup_logging()
         self._ensure_trade_log_file()
@@ -61,9 +58,7 @@ class PriceAnalyzer:
         self.logger.setLevel(logging.WARNING)  # Only warnings and errors
         log_file = f'logs/robot_price_{self.instrument.replace("/", "_")}_{datetime.now().strftime("%Y%m%d")}.log'
         if not self.logger.handlers:
-            file_handler, console_handler = self._create_log_handlers(log_file)
-            self.logger.addHandler(file_handler)
-            # Remove console handler to reduce console spam
+            file_handler, _ = self._create_log_handlers(log_file)
             self.logger.addHandler(file_handler)
 
     def _normalize_log_message(self, message: str) -> str:
@@ -86,126 +81,6 @@ class PriceAnalyzer:
         elif level == 'warning':
             self.logger.warning(message)
 
-    def check_instrument_availability(self) -> dict:
-        """Check if the instrument is available for trading using market hours checker"""
-        try:
-            current_time = datetime.now(pytz.timezone('UTC'))
-            market_status = self.market_checker.is_market_open(self.instrument, current_time)
-            recommendation = self.market_checker.get_trading_recommendation(self.instrument, current_time)
-            
-            # Only log if there's an issue
-            if not market_status['is_available']:
-                self._log_message(f"{self.instrument}: {market_status['status']} - {market_status['reason']}", level='warning')
-            
-            return {
-                'is_available': market_status['is_available'],
-                'market_status': market_status,
-                'recommendation': recommendation,
-                'should_suspend': not market_status['is_available'] or recommendation['recommendation'] == 'wait'
-            }
-        except Exception as e:
-            self._log_message(f"Error checking instrument availability: {e}", level='error')
-            return {
-                'is_available': False,
-                'market_status': {'status': 'error', 'reason': str(e)},
-                'recommendation': {'recommendation': 'wait'},
-                'should_suspend': True
-            }
-
-    def handle_instrument_suspension(self, availability_info: dict):
-        """Handle suspension when instrument is not available"""
-        if availability_info['should_suspend']:
-            market_status = availability_info['market_status']
-            next_open = market_status.get('next_open')
-            
-            if next_open:
-                if isinstance(next_open, str):
-                    try:
-                        next_open_dt = datetime.fromisoformat(next_open.replace('Z', '+00:00'))
-                    except Exception:
-                        next_open_dt = datetime.now(pytz.timezone('UTC')) + dt.timedelta(hours=1)
-                else:
-                    next_open_dt = next_open
-                
-                self._suspension_state = {
-                    'is_suspended': True,
-                    'next_check_time': next_open_dt,
-                    'reason': market_status.get('reason', 'Market not available')
-                }
-                
-                wait_minutes = max(1, int((next_open_dt - datetime.now(pytz.timezone('UTC'))).total_seconds() / 60))
-                
-                self._log_message(f"[SUSPEND] {self.instrument} suspended until {next_open_dt.strftime('%H:%M')} UTC", level='warning')
-                
-                return True
-            else:
-                # No specific reopen time, check again in 30 minutes
-                next_check = datetime.now(pytz.timezone('UTC')) + dt.timedelta(minutes=30)
-                self._suspension_state = {
-                    'is_suspended': True,
-                    'next_check_time': next_check,
-                    'reason': market_status.get('reason', 'Market not available')
-                }
-                
-                self._log_message(f"[SUSPEND] {self.instrument} suspended - checking again at {next_check.strftime('%H:%M')} UTC", level='warning')
-                return True
-        
-        return False
-
-    def is_instrument_suspended(self) -> bool:
-        """Check if instrument is currently suspended"""
-        if not self._suspension_state['is_suspended']:
-            return False
-        
-        current_time = datetime.now(pytz.timezone('UTC'))
-        next_check = self._suspension_state['next_check_time']
-        
-        if next_check and current_time >= next_check:
-            # Time to check if market is available again
-            availability_info = self.check_instrument_availability()
-            
-            if not availability_info['should_suspend']:
-                # Market is available again
-                self._suspension_state = {'is_suspended': False, 'next_check_time': None, 'reason': ''}
-                print(f"✅ {self.instrument}: REACTIVADO → Opera normal")
-                return False
-            else:
-                # Still not available, extend suspension
-                self.handle_instrument_suspension(availability_info)
-                return True
-        
-        return True
-
-    def wait_for_instrument_availability(self):
-        """Wait until instrument becomes available or until next check time"""
-        if not self._suspension_state['is_suspended']:
-            return
-        
-        current_time = datetime.now(pytz.timezone('UTC'))
-        next_check = self._suspension_state['next_check_time']
-        
-        if next_check:
-            wait_seconds = max(0, (next_check - current_time).total_seconds())
-            if wait_seconds > 0:
-                wait_minutes = wait_seconds / 60
-                # Only log long waits
-                if wait_minutes > 60:
-                    self._log_message(f"[WAIT] {self.instrument} waiting {wait_minutes/60:.1f} hours", level='warning')
-                
-                # Sleep in chunks to avoid blocking too long
-                chunk_size = min(300, wait_seconds)  # Max 5 minutes chunks
-                while wait_seconds > 0:
-                    sleep_time = min(chunk_size, wait_seconds)
-                    time.sleep(sleep_time)
-                    wait_seconds -= sleep_time
-                    
-                    # Log progress only for very long waits
-                    if wait_seconds > 3600:  # Only log every hour for waits > 1 hour
-                        remaining_hours = wait_seconds / 3600
-                        self._log_message(f"[WAIT] {self.instrument} still waiting {remaining_hours:.1f}h", level='warning')
-        else:
-            # No specific time, wait 30 minutes
-            time.sleep(1800)  # 30 minutes
 
     def _ensure_trade_log_file(self):
         try:
@@ -259,12 +134,6 @@ class PriceAnalyzer:
         
         for attempt in range(max_retries):
             try:
-                # Check if instrument is available before attempting to get data
-                if hasattr(self, 'market_checker'):
-                    availability_info = self.check_instrument_availability()
-                    if availability_info['should_suspend']:
-                        self._log_message(f"Instrument {instrument} not available for data retrieval - {availability_info['market_status']['reason']}", level='warning')
-                        # Still try to get data but with awareness of market status
                 
                 europe_london_datetime = datetime.now(pytz.timezone('Europe/London'))
                 date_from = europe_london_datetime - dt.timedelta(days=days)
@@ -275,11 +144,7 @@ class PriceAnalyzer:
                 pricedata = pd.DataFrame(history, columns=["Date", "BidOpen", "BidHigh", "BidLow", "BidClose", "Volume"])
                
                 if pricedata.empty:
-                    self._log_message(f"Empty DataFrame created for {instrument} {timeframe} - Market may be closed or instrument unavailable", level='error')
-                    
-                    # If we have market checker, provide more context
-                    # Market status already logged in availability check
-                    
+                    self._log_message(f"Empty DataFrame created for {instrument} {timeframe} - No data available", level='error')
                     return pd.DataFrame()
                 
                 d = {
@@ -301,20 +166,6 @@ class PriceAnalyzer:
                 
             except Exception as e:
                 error_msg = f"Error in get_price_data for {instrument} {timeframe}: {str(e)}"
-                
-                # Check if this might be a market availability issue
-                if "not available" in str(e).lower() or "closed" in str(e).lower():
-                    if hasattr(self, 'market_checker'):
-                        market_status = self.market_checker.is_market_open(instrument)
-                        if not market_status['is_available']:
-                            error_msg += f" - Market appears to be closed: {market_status['reason']}"
-                            # Handle suspension for unavailable market
-                            availability_info = {
-                                'should_suspend': True,
-                                'market_status': market_status,
-                                'recommendation': {'recommendation': 'wait'}
-                            }
-                            self.handle_instrument_suspension(availability_info)
                 
                 # Verifica si el error está relacionado con la sesión o scope
                 if "unsupported scope" in str(e).lower() or "session" in str(e).lower():
@@ -352,59 +203,132 @@ class PriceAnalyzer:
         file_name = os.path.join('data', self.instrument.replace("/", "_") + "_" + self.timeframe + ".csv")
         pricedata.to_csv(file_name)
 
-    def get_latest_price(self, instrument: str, BuySell: str) -> float:
+    def get_latest_price(self) -> float:
         if self.pricedata is not None and not self.pricedata.empty:
             return float(self.pricedata['bidclose'].iloc[-1])
-        return None
+        return 0.0
 
     def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate essential indicators for signal generation"""
         try:
-            # Calculate peaks
-            df = self.calculate_peaks(df)
-            # Calculate medians
-            df = self.calculate_medians(df)
-            # Calculate EMAs
+            # Core EMAs for trend analysis
             df = self.calculate_ema_200(df)
             df = self.calculate_ema_100(df)
-            df = self.calculate_ema_80(df)
-            # Calculate ATR and filters
-            df = self.calculate_atr_and_filters(df)
-            # Indicators calculated successfully - no need to log
+            df = self.calculate_ema_80(df)            
+            df = self.calculate_peaks(df)
+            
+            # Channel analysis
+            df = self.calculate_channel_medians(df)
+            df = self.detect_channel_breakout(df)
+            
             return df
         except Exception as e:
             self._log_message(f"Error setting indicators: {str(e)}", 'error')
             return df
 
 
-    def calculate_peaks(self, df: pd.DataFrame, order: int = 50) -> pd.DataFrame:
+    def calculate_peaks(self, df: pd.DataFrame, order: int = 30) -> pd.DataFrame:
         self._add_price_peaks(df, order)
         return df
 
-    def calculate_medians(self, df: pd.DataFrame, window: int = 50) -> pd.DataFrame:
-        """Calculate rolling medians for bidhigh, bidlow, bidclose, bidopen"""
+    def calculate_channel_medians(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate median max and median min using EMAs as dynamic channels"""
         if df is None or df.empty:
             return df
         
-        # Initialize median columns
-        df['median_high'] = np.nan
-        df['median_low'] = np.nan
-        df['median_close'] = np.nan
-        df['median_open'] = np.nan
+        # Use EMA 200 as median max (upper channel)
+        df['median_max'] = df['ema_200']
         
-        # Calculate rolling medians
-        if 'bidhigh' in df.columns:
-            df['median_high'] = df['bidhigh'].rolling(window=window, min_periods=10).median()
+        # Use EMA 80 as median min (lower channel) 
+        df['median_min'] = df['ema_80']
         
-        if 'bidlow' in df.columns:
-            df['median_low'] = df['bidlow'].rolling(window=window, min_periods=10).median()
-        
-        if 'bidclose' in df.columns:
-            df['median_close'] = df['bidclose'].rolling(window=window, min_periods=10).median()
-        
-        if 'bidopen' in df.columns:
-            df['median_open'] = df['bidopen'].rolling(window=window, min_periods=10).median()
+        # Calculate channel width in pips
+        df['channel_width_pips'] = self._calculate_pips_distance(df['median_max'], df['median_min'])
         
         return df
+
+    def calculate_pips_distance(self, price1: float, price2: float, instrument: str = None) -> float:
+        """Calculate distance between two prices in pips"""
+        if instrument is None:
+            instrument = self.instrument
+            
+        # Determine pip value based on instrument
+        if 'JPY' in instrument:
+            pip_value = 0.01  # For JPY pairs, 1 pip = 0.01
+        else:
+            pip_value = 0.0001  # For major pairs, 1 pip = 0.0001
+            
+        distance = abs(price1 - price2)
+        pips = distance / pip_value
+        return round(pips, 1)
+
+    def _calculate_pips_distance(self, series1: pd.Series, series2: pd.Series) -> pd.Series:
+        """Calculate pips distance between two price series"""
+        if series1 is None or series2 is None:
+            return pd.Series()
+            
+        # Determine pip value based on instrument
+        if 'JPY' in self.instrument:
+            pip_value = 0.01
+        else:
+            pip_value = 0.0001
+            
+        distance = abs(series1 - series2)
+        pips = distance / pip_value
+        return pips.round(1)
+
+    def detect_channel_breakout(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Detect channel breakouts for trading signals"""
+        if df is None or df.empty or 'median_max' not in df.columns or 'median_min' not in df.columns:
+            return df
+            
+        df['channel_breakout_up'] = 0
+        df['channel_breakout_down'] = 0
+        
+        # Detect upward breakout (price breaks above median_max)
+        df.loc[df['bidclose'] > df['median_max'], 'channel_breakout_up'] = 1
+        
+        # Detect downward breakout (price breaks below median_min)
+        df.loc[df['bidclose'] < df['median_min'], 'channel_breakout_down'] = 1
+        
+        return df
+
+    def get_peak_distance_analysis(self, df: pd.DataFrame) -> dict:
+        """Analyze distances between peaks in pips"""
+        if df is None or df.empty:
+            return {}
+            
+        analysis = {}
+        
+        # Get min peaks
+        min_peaks = df[df['peaks_min'] == 1]['bidclose'].values
+        max_peaks = df[df['peaks_max'] == 1]['bidclose'].values
+        
+        if len(min_peaks) > 1:
+            min_distances = []
+            for i in range(1, len(min_peaks)):
+                dist = self.calculate_pips_distance(min_peaks[i-1], min_peaks[i])
+                min_distances.append(dist)
+            analysis['min_peak_distances'] = min_distances
+            analysis['avg_min_distance'] = round(np.mean(min_distances), 1) if min_distances else 0
+            
+        if len(max_peaks) > 1:
+            max_distances = []
+            for i in range(1, len(max_peaks)):
+                dist = self.calculate_pips_distance(max_peaks[i-1], max_peaks[i])
+                max_distances.append(dist)
+            analysis['max_peak_distances'] = max_distances
+            analysis['avg_max_distance'] = round(np.mean(max_distances), 1) if max_distances else 0
+            
+        # Calculate channel width statistics
+        if 'channel_width_pips' in df.columns:
+            channel_widths = df['channel_width_pips'].dropna()
+            if len(channel_widths) > 0:
+                analysis['avg_channel_width'] = round(channel_widths.mean(), 1)
+                analysis['max_channel_width'] = round(channel_widths.max(), 1)
+                analysis['min_channel_width'] = round(channel_widths.min(), 1)
+        
+        return analysis
 
     def calculate_ema_200(self, df: pd.DataFrame, period: int = 200) -> pd.DataFrame:
         """Calculate Exponential Moving Average of 200 periods on bidclose"""
@@ -445,200 +369,7 @@ class PriceAnalyzer:
         
         return df
 
-    def calculate_atr_and_filters(self, df: pd.DataFrame, atr_period: int = 14, slope_period: int = 5) -> pd.DataFrame:
-        """Calculate ATR and trading filters to improve signal quality"""
-        if df is None or df.empty:
-            return df
 
-        # Calculate True Range and ATR
-        df['prev_close'] = df['bidclose'].shift(1)
-        tr1 = df['bidhigh'] - df['bidlow']
-        tr2 = (df['bidhigh'] - df['prev_close']).abs()
-        tr3 = (df['bidlow'] - df['prev_close']).abs()
-        df['true_range'] = np.nanmax(np.vstack([tr1.values, tr2.values, tr3.values]).T, axis=1)
-        df['atr_14'] = pd.Series(df['true_range']).rolling(window=atr_period, min_periods=5).mean()
-        
-        # SIMPLE LIQUIDITY FILTER - Add basic liquidity detection
-        df = self._add_simple_liquidity_filter(df)
-
-        # EMA 200 slope filter (less restrictive)
-        if 'ema_200' in df.columns:
-            df['ema_200_slope'] = ((df['ema_200'] - df['ema_200'].shift(slope_period)) / 
-                                   df['ema_200'].shift(slope_period) * 100).fillna(0)
-            # Slope direction: 1=up, -1=down, 0=flat (more restrictive threshold)
-            slope_threshold = 0.01  # 0.01% minimum slope (was 0.005%)
-            df['ema_200_trend'] = np.where(df['ema_200_slope'] > slope_threshold, 1,
-                                          np.where(df['ema_200_slope'] < -slope_threshold, -1, 0))
-
-        # Distance to EMA 200 filter (less restrictive)
-        if 'ema_200' in df.columns:
-            df['distance_to_ema200'] = abs(df['bidclose'] - df['ema_200'])
-            # Minimum distance = max(0.0002, 0.3*ATR14) - more permissive
-            df['min_distance_required'] = np.maximum(0.0002, 0.3 * df['atr_14'])
-            df['far_from_ema200'] = df['distance_to_ema200'] > df['min_distance_required']
-
-        # EMA compression filter (less restrictive)
-        if all(col in df.columns for col in ['ema_80', 'ema_100', 'ema_200']):
-            ema_max = np.maximum.reduce([df['ema_80'], df['ema_100'], df['ema_200']])
-            ema_min = np.minimum.reduce([df['ema_80'], df['ema_100'], df['ema_200']])
-            df['ema_spread'] = ema_max - ema_min
-            # EMAs not compressed if spread > 0.20*ATR14 (was 0.15)
-            df['emas_not_compressed'] = df['ema_spread'] > (0.20 * df['atr_14'])
-
-        # Advanced filters for signal quality
-        
-        # 1. RSI Momentum Filter (14 periods)
-        delta = df['bidclose'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df['rsi_14'] = 100 - (100 / (1 + rs))
-        
-        # RSI momentum conditions
-        df['rsi_not_overbought'] = df['rsi_14'] < 70  # For BUY signals
-        df['rsi_not_oversold'] = df['rsi_14'] > 30    # For SELL signals
-        
-        # 2. Volume/Range Minimum Filter
-        df['candle_range'] = df['bidhigh'] - df['bidlow']
-        df['candle_body'] = abs(df['bidclose'] - df['bidopen'])
-        df['body_ratio'] = df['candle_body'] / df['candle_range'].replace(0, np.nan)
-        
-        # Range and body filters (more permissive)
-        if 'atr_14' in df.columns:
-            df['significant_range'] = df['candle_range'] > (0.5 * df['atr_14'])  # Was 0.8, now 0.5
-            df['significant_body'] = df['body_ratio'] > 0.4  # Was 0.6, now 0.4
-        else:
-            df['significant_range'] = True
-            df['significant_body'] = True
-        
-        # 3. Stack Confirmation Filter
-        # Price position relative to EMA stack
-        if all(col in df.columns for col in ['ema_80', 'ema_100', 'ema_200']):
-            # For BUY: price should be above EMA 80, and EMAs in bullish order
-            df['price_above_ema80'] = df['bidclose'] > df['ema_80']
-            df['price_below_ema80'] = df['bidclose'] < df['ema_80']
-            
-            # EMA stack order (bullish/bearish)
-            df['ema_stack_bullish'] = (df['ema_80'] > df['ema_100']) & (df['ema_100'] > df['ema_200'])
-            df['ema_stack_bearish'] = (df['ema_80'] < df['ema_100']) & (df['ema_100'] < df['ema_200'])
-            
-            # Combined stack confirmation
-            df['stack_confirms_buy'] = df['price_above_ema80'] & df['ema_stack_bullish']
-            df['stack_confirms_sell'] = df['price_below_ema80'] & df['ema_stack_bearish']
-        else:
-            df['stack_confirms_buy'] = True
-            df['stack_confirms_sell'] = True
-        
-        # 4. Probability Scoring System (0-100)
-        df['signal_score'] = 0
-        
-        # Base score for EMA alignment (30 points)
-        if all(col in df.columns for col in ['ema_80', 'ema_100', 'ema_200']):
-            df.loc[df['ema_stack_bullish'], 'signal_score'] += 15  # Bullish stack
-            df.loc[df['ema_stack_bearish'], 'signal_score'] += 15  # Bearish stack
-            
-            # Price position bonus (15 points)
-            df.loc[df['price_above_ema80'] & df['ema_stack_bullish'], 'signal_score'] += 15
-            df.loc[df['price_below_ema80'] & df['ema_stack_bearish'], 'signal_score'] += 15
-        
-        # EMA 200 slope score (20 points)
-        if 'ema_200_trend' in df.columns:
-            df.loc[df['ema_200_trend'] == 1, 'signal_score'] += 20  # Bullish slope
-            df.loc[df['ema_200_trend'] == -1, 'signal_score'] += 20  # Bearish slope
-            df.loc[df['ema_200_trend'] == 0, 'signal_score'] += 10   # Flat (partial)
-        
-        # Distance and compression (15 points each)
-        if 'far_from_ema200' in df.columns:
-            df.loc[df['far_from_ema200'], 'signal_score'] += 15
-        if 'emas_not_compressed' in df.columns:
-            df.loc[df['emas_not_compressed'], 'signal_score'] += 15
-        
-        # RSI momentum (10 points)
-        df.loc[df['rsi_not_overbought'], 'signal_score'] += 5   # For BUY potential
-        df.loc[df['rsi_not_oversold'], 'signal_score'] += 5    # For SELL potential
-        
-        # Range and body quality (15 points)
-        df.loc[df['significant_range'], 'signal_score'] += 8
-        df.loc[df['significant_body'], 'signal_score'] += 7
-        
-        # High probability threshold (more restrictive)
-        df['high_probability'] = df['signal_score'] >= 60  # Was 50, now 60
-        
-        # Clean up temporary columns
-        df = df.drop(columns=['prev_close'], errors='ignore')
-        
-        return df
-
-    def _add_simple_liquidity_filter(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Simple liquidity filter based on time sessions and basic price behavior"""
-        if df is None or df.empty:
-            return df
-        
-        try:
-            # Convert date to datetime for hour extraction
-            df['datetime'] = pd.to_datetime(df['date'].astype(str), format='%Y%m%d%H%M%S', errors='coerce')
-            df['hour_utc'] = df['datetime'].dt.hour
-            df['minute'] = df['datetime'].dt.minute
-            
-            # Define trading sessions (UTC times)
-            # London: 8-16 UTC, New York: 13-21 UTC, Tokyo: 0-8 UTC
-            df['london_session'] = df['hour_utc'].between(8, 16)
-            df['newyork_session'] = df['hour_utc'].between(13, 21)
-            df['tokyo_session'] = df['hour_utc'].between(0, 8)
-            
-            # High liquidity = overlap periods or major sessions
-            df['session_overlap'] = df['london_session'] & df['newyork_session']  # 13-16 UTC overlap
-            df['major_session'] = df['london_session'] | df['newyork_session']
-            
-            # Low liquidity periods (simple detection)
-            df['weekend_approach'] = (df['datetime'].dt.dayofweek == 4) & (df['hour_utc'] >= 20)  # Friday 20+ UTC
-            df['weekend_start'] = df['datetime'].dt.dayofweek.isin([5, 6])  # Saturday, Sunday
-            df['asian_low_period'] = df['hour_utc'].between(2, 6) & (~df['tokyo_session'])  # Dead hours
-            
-            # Simple gap detection (indicates low liquidity)
-            if 'atr_14' in df.columns:
-                df['price_gap'] = abs(df['bidopen'] - df['bidclose'].shift(1))
-                df['significant_gap'] = df['price_gap'] > (df['atr_14'] * 0.3)  # Gap > 30% of ATR
-                df['gap_count'] = df['significant_gap'].rolling(window=10).sum()  # Gaps in last 10 candles
-            else:
-                df['significant_gap'] = False
-                df['gap_count'] = 0
-            
-            # Final liquidity assessment (SIMPLE)
-            df['low_liquidity_period'] = (
-                df['weekend_approach'] | 
-                df['weekend_start'] | 
-                df['asian_low_period'] | 
-                (df['gap_count'] >= 3)  # Too many gaps recently
-            )
-            
-            df['high_liquidity_period'] = (
-                df['session_overlap'] |  # Best time: London-NY overlap
-                (df['major_session'] & ~df['low_liquidity_period'])  # Major sessions without issues
-            )
-            
-            # Liquidity score (0-100, simple)
-            df['liquidity_score'] = np.where(
-                df['high_liquidity_period'], 80,  # High liquidity
-                np.where(df['low_liquidity_period'], 20, 50)  # Low or medium liquidity
-            )
-            
-            # Trading permission flag
-            df['liquidity_allows_trading'] = ~df['low_liquidity_period']
-            
-            # Clean up temporary columns
-            df = df.drop(columns=['datetime'], errors='ignore')
-            
-            return df
-            
-        except Exception as e:
-            self._log_message(f"Error in simple liquidity filter: {e}", level='error')
-            # Fallback: allow all trading if filter fails
-            df['liquidity_allows_trading'] = True
-            df['liquidity_score'] = 50
-            df['low_liquidity_period'] = False
-            df['high_liquidity_period'] = False
-            return df
 
     def _add_price_peaks(self, df, order):        
             df['peaks_min'] = 0
@@ -652,7 +383,7 @@ class PriceAnalyzer:
 
             
     def set_signals_to_trades(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Generate signals based on peaks with median/EMA filter"""
+        """Generate trading signals based on peaks, EMA alignment, and channel strategy"""
         if df is None or df.empty:
             return df
             
@@ -661,262 +392,107 @@ class PriceAnalyzer:
         sell_signals = 0
         filtered_buy = 0
         filtered_sell = 0
+        channel_signals = 0
         
         # Check if required columns exist
-        has_medians = all(col in df.columns for col in ['median_high', 'median_low', 'median_close', 'median_open'])
         has_ema_200 = 'ema_200' in df.columns
         has_ema_100 = 'ema_100' in df.columns
         has_ema_80 = 'ema_80' in df.columns
         has_all_emas = has_ema_200 and has_ema_100 and has_ema_80
+        has_channel = 'median_max' in df.columns and 'median_min' in df.columns
         
         for i in range(len(df)):
-            # Peak-based signals with median/EMA filter
-            if df['peaks_min'].iloc[i] == 1:  # Potential BUY signal at LOW peak
-                signal_valid = True
-                filter_details = []
+            current_price = df['bidclose'].iloc[i]
+            signal_generated = False
+            
+            # CHANNEL STRATEGY: Breakout signals
+            if has_channel and not signal_generated:
+                median_max = df['median_max'].iloc[i]
+                median_min = df['median_min'].iloc[i]
                 
-                # Enhanced EMA alignment filter for BUY signals
-                if has_all_emas:
-                    # BUY: require bullish EMA alignment (shorter EMAs above longer EMAs)
-                    ema_200 = df['ema_200'].iloc[i]
-                    ema_100 = df['ema_100'].iloc[i]
-                    ema_80 = df['ema_80'].iloc[i]
+                if not any(pd.isna([median_max, median_min])):
+                    # BUY signal: Price breaks above median_max (upper channel)
+                    if current_price > median_max:
+                        df.at[i, 'signal'] = self.SIGNAL_BUY
+                        buy_signals += 1
+                        channel_signals += 1
+                        signal_generated = True
+                        candle_date = df['date'].iloc[i] if 'date' in df.columns else i
+                        channel_width = self.calculate_pips_distance(median_max, median_min)
+                        self._log_message(f"CHANNEL BUY: Date={candle_date} Price={current_price:.5f} Channel Width={channel_width:.1f} pips")
                     
-                    if not any(pd.isna([ema_200, ema_100, ema_80])):
-                        # For BUY: EMA 80 > EMA 100 > EMA 200 (bullish alignment)
-                        ema_alignment_bullish = ema_80 > ema_100 > ema_200
-                        if not ema_alignment_bullish:
-                            signal_valid = False
-                            filtered_buy += 1
-                            filter_details.append(f"EMA_ALIGNMENT_FAIL: 80={ema_80:.5f} 100={ema_100:.5f} 200={ema_200:.5f}")
-                        else:
-                            filter_details.append("EMA_ALIGNMENT_PASS")
-                
-                # Advanced Quality Filters for BUY signals
-                if signal_valid:
-                    signal_score = df.get('signal_score', pd.Series([0])).iloc[i] if 'signal_score' in df.columns else 0
+                    # SELL signal: Price breaks below median_min (lower channel)
+                    elif current_price < median_min:
+                        df.at[i, 'signal'] = self.SIGNAL_SELL
+                        sell_signals += 1
+                        channel_signals += 1
+                        signal_generated = True
+                        candle_date = df['date'].iloc[i] if 'date' in df.columns else i
+                        channel_width = self.calculate_pips_distance(median_max, median_min)
+                        self._log_message(f"CHANNEL SELL: Date={candle_date} Price={current_price:.5f} Channel Width={channel_width:.1f} pips")
+            
+            # PEAK STRATEGY: Traditional peak-based signals (if no channel signal)
+            if not signal_generated:
+                # BUY signals at LOW peaks
+                if df['peaks_min'].iloc[i] == 1:
+                    signal_valid = True
                     
-                    # 1. RSI Momentum Filter
-                    rsi_ok = df.get('rsi_not_overbought', pd.Series([True])).iloc[i] if 'rsi_not_overbought' in df.columns else True
-                    rsi_value = df.get('rsi_14', pd.Series([50])).iloc[i] if 'rsi_14' in df.columns else 50
+                    # EMA alignment check for BUY signals
+                    if has_all_emas:
+                        ema_200 = df['ema_200'].iloc[i]
+                        ema_100 = df['ema_100'].iloc[i]
+                        ema_80 = df['ema_80'].iloc[i]
+                        
+                        if not any(pd.isna([ema_200, ema_100, ema_80])):
+                            # BUY: require bullish EMA alignment
+                            if not (ema_80 > ema_100 > ema_200):
+                                signal_valid = False
+                                filtered_buy += 1
                     
-                    # 2. Range/Body Quality Filter  
-                    range_ok = df.get('significant_range', pd.Series([True])).iloc[i] if 'significant_range' in df.columns else True
-                    body_ok = df.get('significant_body', pd.Series([True])).iloc[i] if 'significant_body' in df.columns else True
-                    body_ratio = df.get('body_ratio', pd.Series([1])).iloc[i] if 'body_ratio' in df.columns else 1
-                    
-                    # 3. Stack Confirmation Filter
-                    stack_ok = df.get('stack_confirms_buy', pd.Series([True])).iloc[i] if 'stack_confirms_buy' in df.columns else True
-                    price_above_ema80 = df.get('price_above_ema80', pd.Series([True])).iloc[i] if 'price_above_ema80' in df.columns else True
-                    
-                    # 4. High Probability Filter (Primary Gate)
-                    high_prob = df.get('high_probability', pd.Series([True])).iloc[i] if 'high_probability' in df.columns else True
-                    
-                    # 5. SIMPLE LIQUIDITY FILTER (NEW)
-                    liquidity_ok = df.get('liquidity_allows_trading', pd.Series([True])).iloc[i] if 'liquidity_allows_trading' in df.columns else True
-                    liquidity_score = df.get('liquidity_score', pd.Series([50])).iloc[i] if 'liquidity_score' in df.columns else 50
-                    is_high_liquidity = df.get('high_liquidity_period', pd.Series([False])).iloc[i] if 'high_liquidity_period' in df.columns else False
-                    
-                    # LIQUIDITY CHECK - Block trading in low liquidity periods
-                    if not liquidity_ok:
-                        signal_valid = False
+                    # Generate BUY signal if all checks pass
+                    if signal_valid:
+                        df.at[i, 'signal'] = self.SIGNAL_BUY
+                        buy_signals += 1
+                        candle_date = df['date'].iloc[i] if 'date' in df.columns else i
+                        self._log_message(f"PEAK BUY: Date={candle_date} Price={current_price:.5f}")
+                    else:
                         filtered_buy += 1
-                        filter_details.append(f"LIQUIDITY_BLOCKED: score={liquidity_score}")
+                        
+                # SELL signals at HIGH peaks
+                elif df['peaks_max'].iloc[i] == 1:
+                    signal_valid = True
+                    
+                    # EMA alignment check for SELL signals
+                    if has_all_emas:
+                        ema_200 = df['ema_200'].iloc[i]
+                        ema_100 = df['ema_100'].iloc[i]
+                        ema_80 = df['ema_80'].iloc[i]
+                        
+                        if not any(pd.isna([ema_200, ema_100, ema_80])):
+                            # SELL: require bearish EMA alignment
+                            if not (ema_80 < ema_100 < ema_200):
+                                signal_valid = False
+                                filtered_sell += 1
+                    
+                    # Generate SELL signal if all checks pass
+                    if signal_valid:
+                        df.at[i, 'signal'] = self.SIGNAL_SELL
+                        sell_signals += 1
+                        candle_date = df['date'].iloc[i] if 'date' in df.columns else i
+                        self._log_message(f"PEAK SELL: Date={candle_date} Price={current_price:.5f}")
                     else:
-                        # Mandatory filters (more lenient - only 2 of 3 must pass)
-                        mandatory_count = sum([rsi_ok, stack_ok, high_prob])
-                        mandatory_pass = mandatory_count >= 2  # At least 2 of 3
-                        
-                        # Quality filters (at least 1 of 2 must pass)
-                        quality_pass = range_ok or body_ok
-                        
-                        if not mandatory_pass or not quality_pass:
-                            signal_valid = False
-                            filtered_buy += 1
-                            
-                            # Detailed logging
-                            filter_details.append(f"SCORE: {signal_score}/100")
-                            if not rsi_ok:
-                                filter_details.append(f"RSI_FAIL: {rsi_value:.1f} (overbought)")
-                            if not stack_ok:
-                                filter_details.append(f"STACK_FAIL: price_above_ema80={price_above_ema80}")
-                            if not high_prob:
-                                filter_details.append(f"LOW_PROBABILITY: score={signal_score}<50")
-                            if not quality_pass:
-                                filter_details.append(f"QUALITY_FAIL: range={range_ok} body={body_ok} ratio={body_ratio:.2f}")
-                            filter_details.append(f"MANDATORY: {mandatory_count}/3 passed")
-                        else:
-                            # Add liquidity info to successful signals
-                            liquidity_status = "HIGH_LIQ" if is_high_liquidity else "MED_LIQ"
-                            filter_details.append(f"ALL_PASS: score={signal_score}/100 rsi={rsi_value:.1f} stack={stack_ok} quality={quality_pass} mandatory={mandatory_count}/3 liquidity={liquidity_status}({liquidity_score})")
-                
-                # Original median filter (with EMA 200 as fallback)
-                elif has_medians and has_ema_200:
-                    # BUY: medians should be ABOVE EMA 200 (bullish condition)
-                    ema_value = df['ema_200'].iloc[i]
-                    median_close = df['median_close'].iloc[i]
-                    median_high = df['median_high'].iloc[i]
-                    median_low = df['median_low'].iloc[i]
-                    
-                    if not pd.isna(ema_value) and not pd.isna(median_close):
-                        # Check if majority of medians are above EMA
-                        medians_above_ema = 0
-                        if not pd.isna(median_high) and median_high > ema_value:
-                            medians_above_ema += 1
-                        if not pd.isna(median_low) and median_low > ema_value:
-                            medians_above_ema += 1
-                        if not pd.isna(median_close) and median_close > ema_value:
-                            medians_above_ema += 1
-                        
-                        # BUY only if at least 2 of 3 main medians are above EMA
-                        if medians_above_ema < 2:
-                            signal_valid = False
-                            filtered_buy += 1
-                
-                if signal_valid:
-                    df.at[i, 'signal'] = self.SIGNAL_BUY
-                    buy_signals += 1
-                    # Log successful BUY signal with filter details
-                    candle_date = df['date'].iloc[i] if 'date' in df.columns else i
-                    price = df['bidclose'].iloc[i]
-                    self._log_message(f"BUY SIGNAL GENERATED: Date={candle_date} Price={price:.5f} Filters=[{', '.join(filter_details)}]")
-                elif len(filter_details) > 0:
-                    # Log filtered out BUY signal
-                    candle_date = df['date'].iloc[i] if 'date' in df.columns else i
-                    price = df['bidclose'].iloc[i]
-                    self._log_message(f"BUY SIGNAL FILTERED: Date={candle_date} Price={price:.5f} Reason=[{', '.join(filter_details)}]")
-                    
-            elif df['peaks_max'].iloc[i] == 1:  # Potential SELL signal at HIGH peak
-                signal_valid = True
-                filter_details = []
-                
-                # Enhanced EMA alignment filter for SELL signals
-                if has_all_emas:
-                    # SELL: require bearish EMA alignment (shorter EMAs below longer EMAs)
-                    ema_200 = df['ema_200'].iloc[i]
-                    ema_100 = df['ema_100'].iloc[i]
-                    ema_80 = df['ema_80'].iloc[i]
-                    
-                    if not any(pd.isna([ema_200, ema_100, ema_80])):
-                        # For SELL: EMA 80 < EMA 100 < EMA 200 (bearish alignment)
-                        ema_alignment_bearish = ema_80 < ema_100 < ema_200
-                        if not ema_alignment_bearish:
-                            signal_valid = False
-                            filtered_sell += 1
-                            filter_details.append(f"EMA_ALIGNMENT_FAIL: 80={ema_80:.5f} 100={ema_100:.5f} 200={ema_200:.5f}")
-                        else:
-                            filter_details.append("EMA_ALIGNMENT_PASS")
-                
-                # Advanced Quality Filters for SELL signals
-                if signal_valid:
-                    signal_score = df.get('signal_score', pd.Series([0])).iloc[i] if 'signal_score' in df.columns else 0
-                    
-                    # 1. RSI Momentum Filter
-                    rsi_ok = df.get('rsi_not_oversold', pd.Series([True])).iloc[i] if 'rsi_not_oversold' in df.columns else True
-                    rsi_value = df.get('rsi_14', pd.Series([50])).iloc[i] if 'rsi_14' in df.columns else 50
-                    
-                    # 2. Range/Body Quality Filter  
-                    range_ok = df.get('significant_range', pd.Series([True])).iloc[i] if 'significant_range' in df.columns else True
-                    body_ok = df.get('significant_body', pd.Series([True])).iloc[i] if 'significant_body' in df.columns else True
-                    body_ratio = df.get('body_ratio', pd.Series([1])).iloc[i] if 'body_ratio' in df.columns else 1
-                    
-                    # 3. Stack Confirmation Filter
-                    stack_ok = df.get('stack_confirms_sell', pd.Series([True])).iloc[i] if 'stack_confirms_sell' in df.columns else True
-                    price_below_ema80 = df.get('price_below_ema80', pd.Series([True])).iloc[i] if 'price_below_ema80' in df.columns else True
-                    
-                    # 4. High Probability Filter (Primary Gate)
-                    high_prob = df.get('high_probability', pd.Series([True])).iloc[i] if 'high_probability' in df.columns else True
-                    
-                    # 5. SIMPLE LIQUIDITY FILTER (NEW)
-                    liquidity_ok = df.get('liquidity_allows_trading', pd.Series([True])).iloc[i] if 'liquidity_allows_trading' in df.columns else True
-                    liquidity_score = df.get('liquidity_score', pd.Series([50])).iloc[i] if 'liquidity_score' in df.columns else 50
-                    is_high_liquidity = df.get('high_liquidity_period', pd.Series([False])).iloc[i] if 'high_liquidity_period' in df.columns else False
-                    
-                    # LIQUIDITY CHECK - Block trading in low liquidity periods
-                    if not liquidity_ok:
-                        signal_valid = False
                         filtered_sell += 1
-                        filter_details.append(f"LIQUIDITY_BLOCKED: score={liquidity_score}")
-                    else:
-                        # Mandatory filters (more lenient - only 2 of 3 must pass)
-                        mandatory_count = sum([rsi_ok, stack_ok, high_prob])
-                        mandatory_pass = mandatory_count >= 2  # At least 2 of 3
-                        
-                        # Quality filters (at least 1 of 2 must pass)
-                        quality_pass = range_ok or body_ok
-                        
-                        if not mandatory_pass or not quality_pass:
-                            signal_valid = False
-                            filtered_sell += 1
-                            
-                            # Detailed logging
-                            filter_details.append(f"SCORE: {signal_score}/100")
-                            if not rsi_ok:
-                                filter_details.append(f"RSI_FAIL: {rsi_value:.1f} (oversold)")
-                            if not stack_ok:
-                                filter_details.append(f"STACK_FAIL: price_below_ema80={price_below_ema80}")
-                            if not high_prob:
-                                filter_details.append(f"LOW_PROBABILITY: score={signal_score}<50")
-                            if not quality_pass:
-                                filter_details.append(f"QUALITY_FAIL: range={range_ok} body={body_ok} ratio={body_ratio:.2f}")
-                            filter_details.append(f"MANDATORY: {mandatory_count}/3 passed")
-                        else:
-                            # Add liquidity info to successful signals
-                            liquidity_status = "HIGH_LIQ" if is_high_liquidity else "MED_LIQ"
-                            filter_details.append(f"ALL_PASS: score={signal_score}/100 rsi={rsi_value:.1f} stack={stack_ok} quality={quality_pass} mandatory={mandatory_count}/3 liquidity={liquidity_status}({liquidity_score})")
-                
-                # Original median filter (with EMA 200 as fallback)
-                elif has_medians and has_ema_200:
-                    # SELL: medians should be BELOW EMA 200 (bearish condition)
-                    ema_value = df['ema_200'].iloc[i]
-                    median_close = df['median_close'].iloc[i]
-                    median_high = df['median_high'].iloc[i]
-                    median_low = df['median_low'].iloc[i]
-                    
-                    if not pd.isna(ema_value) and not pd.isna(median_close):
-                        # Check if majority of medians are below EMA
-                        medians_below_ema = 0
-                        if not pd.isna(median_high) and median_high < ema_value:
-                            medians_below_ema += 1
-                        if not pd.isna(median_low) and median_low < ema_value:
-                            medians_below_ema += 1
-                        if not pd.isna(median_close) and median_close < ema_value:
-                            medians_below_ema += 1
-                        
-                        # SELL only if at least 2 of 3 main medians are below EMA
-                        if medians_below_ema < 2:
-                            signal_valid = False
-                            filtered_sell += 1
-                
-                if signal_valid:
-                    df.at[i, 'signal'] = self.SIGNAL_SELL
-                    sell_signals += 1
-                    # Log successful SELL signal with filter details
-                    candle_date = df['date'].iloc[i] if 'date' in df.columns else i
-                    price = df['bidclose'].iloc[i]
-                    self._log_message(f"SELL SIGNAL GENERATED: Date={candle_date} Price={price:.5f} Filters=[{', '.join(filter_details)}]")
-                elif len(filter_details) > 0:
-                    # Log filtered out SELL signal
-                    candle_date = df['date'].iloc[i] if 'date' in df.columns else i
-                    price = df['bidclose'].iloc[i]
-                    self._log_message(f"SELL SIGNAL FILTERED: Date={candle_date} Price={price:.5f} Reason=[{', '.join(filter_details)}]")
                 
         df['valid_signal'] = df['signal']
         
-        # Calculate liquidity statistics
-        liquidity_stats = ""
-        if 'liquidity_allows_trading' in df.columns:
-            total_candles = len(df)
-            low_liq_candles = (~df['liquidity_allows_trading']).sum()
-            high_liq_candles = df.get('high_liquidity_period', pd.Series([False])).sum()
-            liquidity_stats = f" liquidity_blocked={low_liq_candles}/{total_candles} high_liq={high_liq_candles}/{total_candles}"
-        
-        if has_all_emas:
-            self._log_message(f"EMA alignment filtered signals generated: buy={buy_signals} sell={sell_signals} (filtered: {filtered_buy} buy, {filtered_sell} sell){liquidity_stats} instrument={self.instrument} timeframe={self.timeframe}")
-        elif has_medians and has_ema_200:
-            self._log_message(f"Median filtered signals generated: buy={buy_signals} sell={sell_signals} (filtered: {filtered_buy} buy, {filtered_sell} sell){liquidity_stats} instrument={self.instrument} timeframe={self.timeframe}")
+        # Log signal statistics
+        total_signals = buy_signals + sell_signals
+        if has_channel:
+            self._log_message(f"Channel + Peak signals: buy={buy_signals} sell={sell_signals} (channel={channel_signals}, filtered: {filtered_buy} buy, {filtered_sell} sell) instrument={self.instrument} timeframe={self.timeframe}")
+        elif has_all_emas:
+            self._log_message(f"EMA alignment filtered signals: buy={buy_signals} sell={sell_signals} (filtered: {filtered_buy} buy, {filtered_sell} sell) instrument={self.instrument} timeframe={self.timeframe}")
         else:
-            self._log_message(f"Peak signals generated: buy={buy_signals} sell={sell_signals}{liquidity_stats} instrument={self.instrument} timeframe={self.timeframe}")
+            self._log_message(f"Peak signals: buy={buy_signals} sell={sell_signals} instrument={self.instrument} timeframe={self.timeframe}")
         
         return df
 
@@ -924,7 +500,7 @@ class PriceAnalyzer:
         df.iloc[idx, df.columns.get_loc(signal_col)] = value
 
     def triggers_trades_open(self, df: pd.DataFrame, config=None):
-        """Simplified trade opening - processes last 7 candles but ignores last 2"""
+        """Enhanced trade opening with channel strategy - processes last 7 candles but ignores last 2"""
         try:
             # Initialize config
             if config is None:
@@ -937,28 +513,139 @@ class PriceAnalyzer:
             last_7_candles = df.tail(7)
             validation_candles = last_7_candles.head(5)  # Exclude last 2 candles
             
-            self._log_message(f"Processing signals in last 7 candles (excluding last 2) for trade execution")
+            self._log_message("Processing signals in last 7 candles (excluding last 2) for trade execution")
             
             # Check for signals in the validation period (candles 3-7 from the end)
             buy_signals = validation_candles[validation_candles[signal_col] == self.SIGNAL_BUY]
             sell_signals = validation_candles[validation_candles[signal_col] == self.SIGNAL_SELL]
             
-            self._log_message(f"Found {len(buy_signals)} buy signals, {len(sell_signals)} sell signals in validation period (candles 3-7)")
+            # Analyze channel conditions for signal validation
+            channel_analysis = self._analyze_channel_conditions(validation_candles)
             
-            # Process signals immediately
+            self._log_message(f"Found {len(buy_signals)} buy signals, {len(sell_signals)} sell signals in validation period (candles 3-7)")
+            self._log_message(f"Channel analysis: width={channel_analysis.get('avg_width', 'N/A')} pips, trend={channel_analysis.get('trend', 'N/A')}")
+            
+            # Process signals with channel validation
             if not buy_signals.empty:
                 latest_buy = buy_signals.iloc[-1]
-                self._log_message(f"BUY signal detected - opening trade from candle {latest_buy['date']}")
-                self._process_buy_signal(latest_buy)
+                if self._validate_channel_signal(latest_buy, 'BUY', channel_analysis):
+                    self._log_message(f"CHANNEL BUY signal validated - opening trade from candle {latest_buy['date']}")
+                    self._process_buy_signal(latest_buy)
+                else:
+                    self._log_message(f"BUY signal filtered by channel conditions")
             elif not sell_signals.empty:
                 latest_sell = sell_signals.iloc[-1]
-                self._log_message(f"SELL signal detected - opening trade from candle {latest_sell['date']}")
-                self._process_sell_signal(latest_sell)
+                if self._validate_channel_signal(latest_sell, 'SELL', channel_analysis):
+                    self._log_message(f"CHANNEL SELL signal validated - opening trade from candle {latest_sell['date']}")
+                    self._process_sell_signal(latest_sell)
+                else:
+                    self._log_message(f"SELL signal filtered by channel conditions")
             else:
                 self._log_message("No signals found in validation period (candles 3-7)")
             
         except Exception as e:
             self._log_message(f"Error in triggers_trades_open: {e}", level='error')
+
+    def _analyze_channel_conditions(self, df: pd.DataFrame) -> dict:
+        """Analyze current channel conditions for signal validation"""
+        analysis = {
+            'avg_width': 0,
+            'trend': 'neutral',
+            'price_position': 'middle',
+            'channel_volatility': 'low'
+        }
+        
+        try:
+            if 'median_max' in df.columns and 'median_min' in df.columns:
+                # Calculate average channel width
+                channel_widths = df['channel_width_pips'].dropna()
+                if len(channel_widths) > 0:
+                    analysis['avg_width'] = round(channel_widths.mean(), 1)
+                
+                # Determine trend based on EMA alignment
+                if 'ema_80' in df.columns and 'ema_100' in df.columns and 'ema_200' in df.columns:
+                    latest_ema_80 = df['ema_80'].iloc[-1]
+                    latest_ema_100 = df['ema_100'].iloc[-1]
+                    latest_ema_200 = df['ema_200'].iloc[-1]
+                    
+                    if not any(pd.isna([latest_ema_80, latest_ema_100, latest_ema_200])):
+                        if latest_ema_80 > latest_ema_100 > latest_ema_200:
+                            analysis['trend'] = 'bullish'
+                        elif latest_ema_80 < latest_ema_100 < latest_ema_200:
+                            analysis['trend'] = 'bearish'
+                
+                # Determine price position within channel
+                if 'bidclose' in df.columns:
+                    latest_price = df['bidclose'].iloc[-1]
+                    latest_median_max = df['median_max'].iloc[-1]
+                    latest_median_min = df['median_min'].iloc[-1]
+                    
+                    if not any(pd.isna([latest_price, latest_median_max, latest_median_min])):
+                        channel_range = latest_median_max - latest_median_min
+                        if channel_range > 0:
+                            price_position = (latest_price - latest_median_min) / channel_range
+                            if price_position > 0.7:
+                                analysis['price_position'] = 'upper'
+                            elif price_position < 0.3:
+                                analysis['price_position'] = 'lower'
+                            else:
+                                analysis['price_position'] = 'middle'
+                
+                # Determine channel volatility
+                if analysis['avg_width'] > 20:
+                    analysis['channel_volatility'] = 'high'
+                elif analysis['avg_width'] > 10:
+                    analysis['channel_volatility'] = 'medium'
+                else:
+                    analysis['channel_volatility'] = 'low'
+                    
+        except Exception as e:
+            self._log_message(f"Error analyzing channel conditions: {e}", level='error')
+        
+        return analysis
+
+    def _validate_channel_signal(self, signal_data, signal_type: str, channel_analysis: dict) -> bool:
+        """Validate trading signal based on channel conditions"""
+        try:
+            # Basic validation - always allow if channel analysis is not available
+            if not channel_analysis or channel_analysis.get('avg_width', 0) == 0:
+                return True
+            
+            # Channel width validation - avoid trading in very narrow channels
+            if channel_analysis.get('avg_width', 0) < 5:
+                self._log_message(f"Signal filtered: Channel too narrow ({channel_analysis.get('avg_width', 0)} pips)")
+                return False
+            
+            # Price position validation
+            price_position = channel_analysis.get('price_position', 'middle')
+            trend = channel_analysis.get('trend', 'neutral')
+            
+            if signal_type == 'BUY':
+                # For BUY signals, prefer when price is in lower part of channel or trend is bullish
+                if price_position == 'upper' and trend == 'bearish':
+                    self._log_message(f"BUY signal filtered: Price in upper channel with bearish trend")
+                    return False
+                    
+            elif signal_type == 'SELL':
+                # For SELL signals, prefer when price is in upper part of channel or trend is bearish
+                if price_position == 'lower' and trend == 'bullish':
+                    self._log_message(f"SELL signal filtered: Price in lower channel with bullish trend")
+                    return False
+            
+            # High volatility validation - be more selective in high volatility
+            if channel_analysis.get('channel_volatility') == 'high':
+                if signal_type == 'BUY' and trend != 'bullish':
+                    self._log_message(f"BUY signal filtered: High volatility without bullish trend")
+                    return False
+                elif signal_type == 'SELL' and trend != 'bearish':
+                    self._log_message(f"SELL signal filtered: High volatility without bearish trend")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self._log_message(f"Error validating channel signal: {e}", level='error')
+            return True  # Allow signal if validation fails
 
     def _process_buy_signal(self, last_buy):
         try:
@@ -969,24 +656,11 @@ class PriceAnalyzer:
             print(f"🟢 {self.instrument}: SEÑAL BUY procesada → Precio: {buy_price} | Fecha: {buy_date}")
             self._log_message(f"Processing BUY signal - Date: {buy_date}, Price: {buy_price}")
             
-            self._close_existing_sell_operations(buy_date, buy_price)
-            
             self._open_buy_operation(buy_date, buy_price)
             
         except Exception as e:
             print(f"❌ {self.instrument}: ERROR en señal BUY → {str(e)}")
             self._log_message(f"Error processing BUY signal: {e}", level='error')
-
-    def _close_existing_sell_operations(self, signal_date, signal_price):
-        if self.existingOperation(instrument=self.instrument, BuySell="S"):
-            print(f"❌ {self.instrument}: CERRANDO OPERACIÓN SELL → Señal BUY detectada | Precio: {signal_price}")
-            self._log_message(
-                f"[CLOSE SELL] Reason: BUY signal detected | Date: {signal_date} | "
-                f"Price: {signal_price} | Instrument: {self.instrument} | Timeframe: {self.timeframe}"
-            )
-            self.CloseOperation(instrument=self.instrument, BuySell="S")
-        else:
-            self._log_message(f"No existing SELL operations to close")
 
     def _open_buy_operation(self, signal_date, signal_price):
         if not self.existingOperation(instrument=self.instrument, BuySell="B"):
@@ -1019,24 +693,11 @@ class PriceAnalyzer:
             print(f"🔴 {self.instrument}: SEÑAL SELL procesada → Precio: {sell_price} | Fecha: {sell_date}")
             self._log_message(f"Processing SELL signal - Date: {sell_date}, Price: {sell_price}")
             
-            self._close_existing_buy_operations(sell_date, sell_price)
-            
             self._open_sell_operation(sell_date, sell_price)
             
         except Exception as e:
             print(f"❌ {self.instrument}: ERROR en señal SELL → {str(e)}")
             self._log_message(f"Error processing SELL signal: {e}", level='error')
-
-    def _close_existing_buy_operations(self, signal_date, signal_price):
-        if self.existingOperation(instrument=self.instrument, BuySell="B"):
-            print(f"❌ {self.instrument}: CERRANDO OPERACIÓN BUY → Señal SELL detectada | Precio: {signal_price}")
-            self._log_message(
-                f"[CLOSE BUY] Reason: SELL signal detected | Date: {signal_date} | "
-                f"Price: {signal_price} | Instrument: {self.instrument} | Timeframe: {self.timeframe}"
-            )
-            self.CloseOperation(instrument=self.instrument, BuySell="B")
-        else:
-            self._log_message(f"No existing BUY operations to close")
 
     def _open_sell_operation(self, signal_date, signal_price):
         if not self.existingOperation(instrument=self.instrument, BuySell="S"):
@@ -1061,14 +722,13 @@ class PriceAnalyzer:
             )
 
     def triggers_trades_close(self, df: pd.DataFrame, config=None):
-        """Enhanced trade closing - processes signals and peaks in last 7 candles but ignores last 2"""
+        """Enhanced trade closing with channel strategy - processes peaks and channel conditions in last 7 candles but ignores last 2"""
         try:
             # Initialize config
             if config is None:
                 from TradingConfiguration import TradingConfig
                 config = TradingConfig()
             
-            signal_col = config.signal_col if hasattr(config, 'signal_col') else 'signal'
             peaks_max_col = config.peaks_max_col if hasattr(config, 'peaks_max_col') else 'peaks_max'
             peaks_min_col = config.peaks_min_col if hasattr(config, 'peaks_min_col') else 'peaks_min'
             
@@ -1076,88 +736,88 @@ class PriceAnalyzer:
             last_7_candles = df.tail(7)
             validation_candles = last_7_candles.head(5)  # Exclude last 2 candles
             
-            self._log_message(f"Processing close signals and peaks in last 7 candles (excluding last 2) for trade closing")
+            self._log_message("Processing close signals and peaks in last 7 candles (excluding last 2) for trade closing")
             
             # Check for peaks in the validation period (candles 3-7 from the end)
             peaks_max = validation_candles[validation_candles[peaks_max_col] == 1] if peaks_max_col in validation_candles.columns else pd.DataFrame()
             peaks_min = validation_candles[validation_candles[peaks_min_col] == 1] if peaks_min_col in validation_candles.columns else pd.DataFrame()
             
-            # Check for opposite signals in the validation period (candles 3-7 from the end)
-            buy_signals = validation_candles[validation_candles[signal_col] == self.SIGNAL_BUY]
-            sell_signals = validation_candles[validation_candles[signal_col] == self.SIGNAL_SELL]
+            # Check for channel breakout signals
+            channel_breakout_up = validation_candles[validation_candles.get('channel_breakout_up', 0) == 1] if 'channel_breakout_up' in validation_candles.columns else pd.DataFrame()
+            channel_breakout_down = validation_candles[validation_candles.get('channel_breakout_down', 0) == 1] if 'channel_breakout_down' in validation_candles.columns else pd.DataFrame()
             
-            self._log_message(f"Found {len(buy_signals)} buy signals, {len(sell_signals)} sell signals, {len(peaks_max)} max peaks, {len(peaks_min)} min peaks for closing in validation period (candles 3-7)")
+            self._log_message(f"Found {len(peaks_max)} max peaks, {len(peaks_min)} min peaks, {len(channel_breakout_up)} channel breakouts up, {len(channel_breakout_down)} channel breakouts down for closing")
             
-            # Close BUY operations when peaks_max is detected (price at maximum)
-            if not peaks_max.empty:
+            # Close BUY operations when peaks_max is detected or channel breakout down
+            if not peaks_max.empty or not channel_breakout_down.empty:
                 if self.existingOperation(instrument=self.instrument, BuySell="B"):
-                    latest_peak_max = peaks_max.iloc[-1]
-                    self._log_message(f"PEAKS MAX detected - closing BUY operations from candle {latest_peak_max['date']}")
-                    self._process_close_buy_peak_signal(latest_peak_max, "PEAKS_MAX")
+                    if not peaks_max.empty:
+                        latest_peak_max = peaks_max.iloc[-1]
+                        self._log_message(f"PEAKS MAX detected - closing BUY operations from candle {latest_peak_max['date']}")
+                        self._process_close_buy_peak_signal(latest_peak_max, "PEAKS_MAX")
+                    elif not channel_breakout_down.empty:
+                        latest_breakout = channel_breakout_down.iloc[-1]
+                        self._log_message(f"CHANNEL BREAKOUT DOWN detected - closing BUY operations from candle {latest_breakout['date']}")
+                        self._process_close_buy_peak_signal(latest_breakout, "CHANNEL_BREAKOUT_DOWN")
             
-            # Close SELL operations when peaks_min is detected (price at minimum)
-            if not peaks_min.empty:
+            # Close SELL operations when peaks_min is detected or channel breakout up
+            if not peaks_min.empty or not channel_breakout_up.empty:
                 if self.existingOperation(instrument=self.instrument, BuySell="S"):
-                    latest_peak_min = peaks_min.iloc[-1]
-                    self._log_message(f"PEAKS MIN detected - closing SELL operations from candle {latest_peak_min['date']}")
-                    self._process_close_sell_peak_signal(latest_peak_min, "PEAKS_MIN")
+                    if not peaks_min.empty:
+                        latest_peak_min = peaks_min.iloc[-1]
+                        self._log_message(f"PEAKS MIN detected - closing SELL operations from candle {latest_peak_min['date']}")
+                        self._process_close_sell_peak_signal(latest_peak_min, "PEAKS_MIN")
+                    elif not channel_breakout_up.empty:
+                        latest_breakout = channel_breakout_up.iloc[-1]
+                        self._log_message(f"CHANNEL BREAKOUT UP detected - closing SELL operations from candle {latest_breakout['date']}")
+                        self._process_close_sell_peak_signal(latest_breakout, "CHANNEL_BREAKOUT_UP")
             
-            # Close opposite positions when signals change (existing logic)
-            if not buy_signals.empty:
-                # BUY signal detected - close any existing SELL operations
-                if self.existingOperation(instrument=self.instrument, BuySell="S"):
-                    latest_buy = buy_signals.iloc[-1]
-                    self._log_message(f"BUY signal detected - closing SELL operations from candle {latest_buy['date']}")
-                    self._process_close_sell_signal(latest_buy)
-                    
-            if not sell_signals.empty:
-                # SELL signal detected - close any existing BUY operations  
-                if self.existingOperation(instrument=self.instrument, BuySell="B"):
-                    latest_sell = sell_signals.iloc[-1]
-                    self._log_message(f"SELL signal detected - closing BUY operations from candle {latest_sell['date']}")
-                    self._process_close_buy_signal(latest_sell)
+            # Check for channel reversal signals (price returns to opposite side of channel)
+            self._check_channel_reversal_signals(validation_candles)
             
-            if buy_signals.empty and sell_signals.empty and peaks_max.empty and peaks_min.empty:
-                self._log_message("No close signals or peaks found in validation period (candles 3-7)")
+            if peaks_max.empty and peaks_min.empty and channel_breakout_up.empty and channel_breakout_down.empty:
+                self._log_message("No close signals found in validation period (candles 3-7)")
             
         except Exception as e:
             self._log_message(f"Error in triggers_trades_close: {e}", level='error')
 
-    def _process_close_buy_signal(self, signal_data):
-        """Process closing of BUY operations when SELL signal is detected"""
+    def _check_channel_reversal_signals(self, df: pd.DataFrame):
+        """Check for channel reversal signals to close trades"""
         try:
-            signal_date = signal_data.get('date', 'N/A')
-            signal_price = signal_data.get('bidclose', None)
+            if 'median_max' not in df.columns or 'median_min' not in df.columns or 'bidclose' not in df.columns:
+                return
             
-            self._log_message(f"Processing CLOSE BUY signal - Date: {signal_date}, Price: {signal_price}")
+            # Get latest price and channel levels
+            latest_price = df['bidclose'].iloc[-1]
+            latest_median_max = df['median_max'].iloc[-1]
+            latest_median_min = df['median_min'].iloc[-1]
             
-            # Close existing BUY operations
-            self._log_message(
-                f"[CLOSE BUY] Reason: SELL signal detected | Date: {signal_date} | "
-                f"Price: {signal_price} | Instrument: {self.instrument} | Timeframe: {self.timeframe}"
-            )
-            self.CloseOperation(instrument=self.instrument, BuySell="B")
+            if any(pd.isna([latest_price, latest_median_max, latest_median_min])):
+                return
             
+            # Check if price has returned to the middle of the channel (reversal signal)
+            channel_middle = (latest_median_max + latest_median_min) / 2
+            channel_range = latest_median_max - latest_median_min
+            
+            if channel_range > 0:
+                # If price is close to channel middle, consider closing trades
+                distance_to_middle = abs(latest_price - channel_middle)
+                middle_threshold = channel_range * 0.2  # Within 20% of channel middle
+                
+                if distance_to_middle <= middle_threshold:
+                    # Close BUY operations if price returns to middle from upper channel
+                    if self.existingOperation(instrument=self.instrument, BuySell="B"):
+                        self._log_message(f"CHANNEL REVERSAL detected - closing BUY operations (price near channel middle)")
+                        self._process_close_buy_peak_signal(df.iloc[-1], "CHANNEL_REVERSAL")
+                    
+                    # Close SELL operations if price returns to middle from lower channel
+                    if self.existingOperation(instrument=self.instrument, BuySell="S"):
+                        self._log_message(f"CHANNEL REVERSAL detected - closing SELL operations (price near channel middle)")
+                        self._process_close_sell_peak_signal(df.iloc[-1], "CHANNEL_REVERSAL")
+                        
         except Exception as e:
-            self._log_message(f"Error processing close BUY signal: {e}", level='error')
+            self._log_message(f"Error checking channel reversal signals: {e}", level='error')
 
-    def _process_close_sell_signal(self, signal_data):
-        """Process closing of SELL operations when BUY signal is detected"""
-        try:
-            signal_date = signal_data.get('date', 'N/A')
-            signal_price = signal_data.get('bidclose', None)
-            
-            self._log_message(f"Processing CLOSE SELL signal - Date: {signal_date}, Price: {signal_price}")
-            
-            # Close existing SELL operations
-            self._log_message(
-                f"[CLOSE SELL] Reason: BUY signal detected | Date: {signal_date} | "
-                f"Price: {signal_price} | Instrument: {self.instrument} | Timeframe: {self.timeframe}"
-            )
-            self.CloseOperation(instrument=self.instrument, BuySell="S")
-            
-        except Exception as e:
-            self._log_message(f"Error processing close SELL signal: {e}", level='error')
 
     def _process_close_buy_peak_signal(self, peak_data, peak_type):
         """Process closing of BUY operations when PEAKS MAX is detected"""
@@ -1252,7 +912,7 @@ class PriceAnalyzer:
                         self.connection.send_request_async(request)
                         self._log_message(f"Operation CLOSED: Instrument={instrument}, Type={BuySell}, Amount={trade.amount}, TradeID={trade.trade_id}")
                         # log close to CSV
-                        latest_price = self.get_latest_price(instrument=instrument, BuySell=BuySell)
+                        latest_price = self.get_latest_price()
                         self._append_trade_log(action='CLOSE', side=BuySell, price=latest_price, signal_date='', details=f'TradeID={trade.trade_id}')
         except Exception as e:
             self._log_message(f"Error closing operation: {e}", level='error')
@@ -1382,7 +1042,7 @@ class PriceAnalyzer:
                     self._last_signal_info = None
                 else:
                     # Fallback log without signal context
-                    latest_price = self.get_latest_price(instrument=str_instrument, BuySell=original_side)
+                    latest_price = self.get_latest_price()
                     self._append_trade_log(action='OPEN', side=original_side, price=latest_price, signal_date='', details='No signal context')
                 
             except Exception as e:
