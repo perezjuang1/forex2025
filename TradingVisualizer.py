@@ -33,9 +33,11 @@ class TradingVisualizer:
         # Initialize auto-update variables
         self.update_interval = 120  # 2 minutes in seconds
         self.auto_update_enabled = True
+        # Mirror for checkbox-controlled auto-scroll
+        self.auto_scroll_enabled = True
         self.stop_update = False
         self.update_thread = None
-        
+
         self.setup_gui()
         
     def get_available_csv_files(self):
@@ -250,7 +252,7 @@ class TradingVisualizer:
             
             
         except Exception as e:
-            print(f"Error updating statistics: {e}")
+            print(f'Error updating statistics: {str(e)}')
     
     def setup_plot(self):
         """Setup the basic plot configuration"""
@@ -272,7 +274,7 @@ class TradingVisualizer:
         
         # Median lines
         self.median_close_line, = self.ax.plot([], [], linestyle='--', color='#00ffff', label='Median Close High Upper', linewidth=1, alpha=0.6)
-        self.median_open_line, = self.ax.plot([], [], linestyle='--', color='#ff00ff', label='Median Open Low Lower', linewidth=1, alpha=0.6)
+        self.median_open_line, = self.ax.plot([], [], linestyle='--', color='#ff00ff', label='Median Close Low Lower', linewidth=1, alpha=0.6)
         
         # Additional median lines with adjusted percentages
         self.median_high_upper_line, = self.ax.plot([], [], linestyle='-', color='#ffd700', label='Median High Upper', linewidth=2, alpha=0.9)
@@ -339,8 +341,7 @@ class TradingVisualizer:
             
         except Exception as e:
             self.status_var.set(f"Error loading {filename}: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f'Error loading {filename}: {str(e)}')
     
     def update_plot_data(self):
         """Update the plot with current data"""
@@ -594,7 +595,7 @@ class TradingVisualizer:
                                     bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
                     
         except Exception as e:
-            print(f"Error plotting median zones: {e}")
+            print(f'Error plotting median zones: {str(e)}')
     
 
     
@@ -604,7 +605,7 @@ class TradingVisualizer:
             if self.current_data is not None:
                 self.update_plot_data()
         except Exception as e:
-            print(f"Error updating plot visibility: {e}")
+            print(f'Error updating plot visibility: {str(e)}')
     
     def show_all_lines(self):
         """Show all plot lines"""
@@ -635,7 +636,7 @@ class TradingVisualizer:
                     # Schedule the update on the main thread
                     self.root.after(0, self._safe_update_data)
                 except Exception as e:
-                    print(f"Error in auto-update: {e}")
+                    print(f'Error in auto-update: {str(e)}')
             
             # Wait for the update interval
             time.sleep(self.update_interval)

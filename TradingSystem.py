@@ -16,10 +16,8 @@ class TradingSystem:
         self.instrument = instrument
         self.days = days
         
-        # Initialize PriceAnalyzer object which handles connection internally
         self.priceAnalyzer = PriceAnalyzer(days, self.instrument, self.timeframe)
         
-        # Get connection from Price object to avoid duplication
         self.connection = self.priceAnalyzer.connection
         self.robotconnection = self.priceAnalyzer.robotconnection
 
@@ -58,7 +56,6 @@ class TradingSystem:
             self.priceAnalyzer.triggers_trades_open(df)
             self.priceAnalyzer.triggers_trades_close(df)
             
-            # Save price data with indicators if not empty
             if not df.empty:
                 self.priceAnalyzer.save_price_data_file(df)
         except Exception as e:
@@ -66,19 +63,17 @@ class TradingSystem:
             print(traceback.format_exc())
 
 def run_trading_for_instrument(instrument):
-    """Run the trading system for a specific instrument"""
     try:
         print(f"[LOG] Starting trading for {instrument} - {dt.datetime.now()}")
         trading = TradingSystem(days=7, instrument=instrument)
         trading.start_trade_monitor()
-    except Exception as e:
+    except Exception:
         print(f"Fatal error occurred for {instrument}. Restarting Trading session...")
         print(traceback.format_exc())
         print("20 seconds to restart...")
         time.sleep(20)
 
 def run_visualizer_for_instrument(instrument):
-    """Run the visualizer for a specific instrument"""
     try:
         from TradingVisualizer import run_single_visualizer
         run_single_visualizer()
@@ -93,27 +88,41 @@ if __name__ == "__main__":
     print("Starting Trading and Plotting System...")
     print(f"Instruments: {instruments}")
     
-    # Start trading threads
+    start_time = time.time()
+    restart_interval = 3600
+    
     trading_threads = []
     for instrument in instruments:
         t = threading.Thread(target=run_trading_for_instrument, args=(instrument,))
-        t.daemon = True  # Make threads daemon so they exit when main program exits
+        t.daemon = True
         t.start()
         trading_threads.append(t)
         print(f"Started trading thread for {instrument}")
     
-    # Start single visualizer process
     print("Starting single window visualizer...")
     visualizer_process = multiprocessing.Process(target=run_visualizer_for_instrument, args=(None,))
     visualizer_process.start()
     
     try:
-        # Wait for visualizer process to complete
-        visualizer_process.join()
+        while True:
+            elapsed_time = time.time() - start_time
+            if elapsed_time >= restart_interval:
+                print("\n[RESTART] 1 hour elapsed. Restarting system...")
+                if visualizer_process.is_alive():
+                    visualizer_process.terminate()
+                    visualizer_process.join()
+                print("System will restart via batch file.")
+                break
+            
+            time.sleep(10)
+            
+            if not visualizer_process.is_alive():
+                print("Visualizer stopped.")
+                break
+                
     except KeyboardInterrupt:
         print("\nShutting down...")
-        # Terminate visualizer process
         if visualizer_process.is_alive():
             visualizer_process.terminate()
             visualizer_process.join()
-        print("All processes terminated.") 
+        print("All processes terminated.")

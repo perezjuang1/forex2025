@@ -1,0 +1,134 @@
+MEJORAS PARA ANALISIS DE TENDENCIA Y CONTEXTO DE MERCADO
+=========================================================
+
+PROBLEMA ACTUAL:
+- El sistema ignora la tendencia principal
+- No considera el contexto general del mercado
+- Opera sin filtrar según la dirección dominante
+
+INDICADORES A INCLUIR:
+----------------------
+
+1. SMA/EMA LARGO PLAZO (200, 100, 50 periodos)
+   - Filtrar señales: solo BUY si precio > SMA200
+   - Solo SELL si precio < SMA200
+   - Evita operar contra la tendencia principal
+
+2. ADX (Average Directional Index)
+   - Solo operar si ADX > 25 (tendencia fuerte)
+   - Evitar mercados laterales (ADX < 25)
+   - Mejora el ratio de operaciones exitosas
+
+3. PENDIENTE DE LA TENDENCIA
+   - Calcular pendiente de SMA200 en ultimos N periodos
+   - Confirmar direccion de tendencia
+   - Detectar cambios de tendencia temprano
+
+4. ANALISIS MULTI-TIMEFRAME
+   - Verificar tendencia en timeframe superior (ej: H1 si operas m15)
+   - Operar solo cuando ambos timeframes coincidan
+   - Mayor fiabilidad de señales
+
+IMPLEMENTACION PROPUESTA:
+------------------------
+
+def add_trend_filters(self, df: pd.DataFrame) -> pd.DataFrame:
+    """Añade filtros de tendencia al dataframe"""
+    
+    # Trend EMAs
+    df['ema200'] = df['bidclose'].ewm(span=200).mean()
+    df['ema50'] = df['bidclose'].ewm(span=50).mean()
+    
+    # ADX para medir fuerza de tendencia
+    from pyti.average_directional_movement_index import average_directional_movement_index as adx
+    df['adx'] = adx(df['bidhigh'], df['bidlow'], df['bidclose'], 14)
+    
+    # Pendiente de tendencia (slope)
+    df['trend_slope'] = df['ema200'].diff(20) / df['ema200'].shift(20)
+    
+    return df
+
+def filter_signals_by_trend(self, df: pd.DataFrame) -> pd.DataFrame:
+    """Filtra señales segun tendencia principal"""
+    
+    # Filtrar señales BUY
+    # - Cancelar BUY si precio bajo EMA200 (contra tendencia)
+    df.loc[(df['signal'] == 1) & (df['bidclose'] <= df['ema200']), 'signal'] = 0
+    
+    # - Cancelar BUY si ADX bajo (mercado lateral)
+    df.loc[(df['signal'] == 1) & (df['adx'] < 25), 'signal'] = 0
+    
+    # Filtrar señales SELL
+    # - Cancelar SELL si precio sobre EMA200 (contra tendencia)
+    df.loc[(df['signal'] == -1) & (df['bidclose'] >= df['ema200']), 'signal'] = 0
+    
+    # - Cancelar SELL si ADX bajo (mercado lateral)
+    df.loc[(df['signal'] == -1) & (df['adx'] < 25), 'signal'] = 0
+    
+    return df
+
+
+INTEGRACION EN PriceAnalyzer.py:
+--------------------------------
+
+Modificar el metodo set_indicators():
+
+def set_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+    try:
+        # Calcular peaks
+        df = self.calculate_peaks(df)
+        
+        # Calcular medians
+        df = self.calculate_medians(df)
+        
+        # NUEVO: Añadir filtros de tendencia
+        df = self.add_trend_filters(df)
+        
+        # Detectar cruces de medianas despues de peaks
+        df = self.detect_median_crosses_after_peaks(df)
+        
+        return df
+    except Exception as e:
+        self._log_message(f"Error setting indicators: {str(e)}", 'error')
+        return df
+
+
+Modificar el metodo set_signals_to_trades():
+
+def set_signals_to_trades(self, df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+        
+    df['signal'] = self.SIGNAL_NEUTRAL
+    
+    # Generar señales desde cruces
+    if 'cross_buy' in df.columns and 'cross_sell' in df.columns:
+        df.loc[df['cross_buy'] == 1, 'signal'] = self.SIGNAL_BUY
+        df.loc[df['cross_sell'] == 1, 'signal'] = self.SIGNAL_SELL
+    
+    # NUEVO: Filtrar señales por tendencia
+    df = self.filter_signals_by_trend(df)
+    
+    df['valid_signal'] = df['signal']
+    
+    return df
+
+
+BENEFICIOS ESPERADOS:
+--------------------
+
+1. Mayor precision en señales (menos falsas señales)
+2. Mejor ratio riesgo/beneficio
+3. Evitar operar en mercados laterales
+4. Seguir la tendencia principal del mercado
+5. Reducir perdidas por operar contra tendencia
+
+CONFIGURACION RECOMENDADA:
+-------------------------
+
+- EMA200: tendencia principal
+- EMA50: tendencia secundaria
+- ADX > 25: minimo para operar
+- Pendiente EMA200: confirmar direccion
+- Multi-timeframe: opcional pero muy recomendado
+

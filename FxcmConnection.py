@@ -10,8 +10,8 @@ class RobotConnection:
 
     @staticmethod
     def session_status_changed(session: fxcorepy.O2GSession,
-                           status: fxcorepy.AO2GSessionStatus.O2GSessionStatus):
-        print("Trading session status: " + str(status))
+                          status: fxcorepy.AO2GSessionStatus.O2GSessionStatus):
+        print('Trading session status: {0}'.format(status))
 
 
     def getConnection(self):

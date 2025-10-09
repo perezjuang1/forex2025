@@ -13,7 +13,8 @@ try:
     ROBOT_CONNECTION_AVAILABLE = True
 except ImportError:
     ROBOT_CONNECTION_AVAILABLE = False
-    print("Warning: RobotConnection not available - forex trading features will be disabled")
+    import logging
+    logging.getLogger('PriceAnalyzer').warning('Warning: RobotConnection not available - forex trading features will be disabled')
 
 
 class PriceAnalyzer:
@@ -171,6 +172,8 @@ class PriceAnalyzer:
             df = self.calculate_peaks(df)
             # Calcular medians
             df = self.calculate_medians(df)
+            # Detectar cruces de medianas después de peaks
+            df = self.detect_median_crosses_after_peaks(df)
             
             # Get median adjustments to log them
             adjustments = TradingConfig.get_median_adjustments(self.instrument)
@@ -228,6 +231,88 @@ class PriceAnalyzer:
         
         return df
 
+    def detect_median_crosses_after_peaks(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Detect price crosses of median after peaks with peak validation"""
+        if df is None or df.empty:
+            return df
+        
+        df['cross_sell'] = 0
+        df['cross_buy'] = 0
+        
+        # Check required columns
+        has_peaks = 'peaks_max' in df.columns and 'peaks_min' in df.columns
+        has_medians_close = 'median_close_hight_upper' in df.columns and 'median_open_low_lower' in df.columns
+        has_medians_hl = 'median_high_upper' in df.columns and 'median_low_lower' in df.columns
+        has_close = 'bidclose' in df.columns
+        
+        if not (has_peaks and has_medians_close and has_medians_hl and has_close):
+            return df
+        
+        cross_sell_count = 0
+        cross_buy_count = 0
+        filtered_sell = 0
+        filtered_buy = 0
+        
+        # Track last peak position
+        last_peak_max_idx = None
+        last_peak_min_idx = None
+        
+        for i in range(1, len(df)):
+            # Track peaks
+            if df['peaks_max'].iloc[i] == 1:
+                last_peak_max_idx = i
+            if df['peaks_min'].iloc[i] == 1:
+                last_peak_min_idx = i
+            
+            # SELL: After peak_max, price crosses median_close_hight_upper downwards
+            if last_peak_max_idx is not None and i > last_peak_max_idx:
+                prev_close = df['bidclose'].iloc[i-1]
+                curr_close = df['bidclose'].iloc[i]
+                median_upper = df['median_close_hight_upper'].iloc[i]
+                
+                if not pd.isna(prev_close) and not pd.isna(curr_close) and not pd.isna(median_upper):
+                    # Price crosses median down
+                    if prev_close >= median_upper and curr_close < median_upper:
+                        # Validate that peak is in range: median_close_hight_upper <= peak <= median_high_upper
+                        peak_price = df['bidclose'].iloc[last_peak_max_idx]
+                        median_close_upper = df['median_close_hight_upper'].iloc[last_peak_max_idx]
+                        median_high_upper = df['median_high_upper'].iloc[last_peak_max_idx]
+                        
+                        if not pd.isna(peak_price) and not pd.isna(median_close_upper) and not pd.isna(median_high_upper):
+                            if median_close_upper <= peak_price <= median_high_upper:
+                                df.at[i, 'cross_sell'] = 1
+                                cross_sell_count += 1
+                            else:
+                                filtered_sell += 1
+                        
+                        last_peak_max_idx = None
+            
+            # BUY: After peak_min, price crosses median_open_low_lower upwards
+            if last_peak_min_idx is not None and i > last_peak_min_idx:
+                prev_close = df['bidclose'].iloc[i-1]
+                curr_close = df['bidclose'].iloc[i]
+                median_lower = df['median_open_low_lower'].iloc[i]
+                
+                if not pd.isna(prev_close) and not pd.isna(curr_close) and not pd.isna(median_lower):
+                    # Price crosses median up
+                    if prev_close <= median_lower and curr_close > median_lower:
+                        # Validate that peak is in range: median_low_lower <= peak <= median_open_low_lower
+                        peak_price = df['bidclose'].iloc[last_peak_min_idx]
+                        median_low_lower = df['median_low_lower'].iloc[last_peak_min_idx]
+                        median_open_lower = df['median_open_low_lower'].iloc[last_peak_min_idx]
+                        
+                        if not pd.isna(peak_price) and not pd.isna(median_low_lower) and not pd.isna(median_open_lower):
+                            if median_low_lower <= peak_price <= median_open_lower:
+                                df.at[i, 'cross_buy'] = 1
+                                cross_buy_count += 1
+                            else:
+                                filtered_buy += 1
+                        
+                        last_peak_min_idx = None
+        
+        self._log_message(f"Crosses with peak validation: {cross_buy_count} buy, {cross_sell_count} sell (filtered: {filtered_buy} buy, {filtered_sell} sell)")
+        return df
+
 
     def _add_price_peaks(self, df, order):        
             df['peaks_min'] = 0
@@ -241,74 +326,32 @@ class PriceAnalyzer:
 
             
     def set_signals_to_trades(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Generate signals based on peaks within median range"""
+        """Generate signals based on median crosses after peaks"""
         if df is None or df.empty:
             return df
             
         df['signal'] = self.SIGNAL_NEUTRAL
         buy_signals = 0
         sell_signals = 0
-        filtered_buy = 0
-        filtered_sell = 0
         
-        # Check if median columns exist
-        has_medians = all(col in df.columns for col in ['median_close_hight_upper', 'median_open_low_lower', 'median_high_upper', 'median_low_lower'])
+        # Check if cross columns exist
+        has_crosses = 'cross_buy' in df.columns and 'cross_sell' in df.columns
         
-        for i in range(len(df)):
-            # BUY signal at LOW peak - must be BETWEEN the two ranges
-            if df['peaks_min'].iloc[i] == 1:
-                if has_medians:
-                    bidclose = df['bidclose'].iloc[i]
-                    # Inner band (close-based, smaller %)
-                    median_open_low_lower = df['median_open_low_lower'].iloc[i]
-                    # Outer band (low-based, larger %)
-                    median_low_lower = df['median_low_lower'].iloc[i]
-                    
-                    if not pd.isna(bidclose) and not pd.isna(median_open_low_lower) and not pd.isna(median_low_lower):
-                        # Peak must be BETWEEN the two bands: median_low_lower <= price <= median_open_low_lower
-                        # Outer band (wider) <= price <= Inner band (tighter)
-                        if median_low_lower <= bidclose <= median_open_low_lower:
-                            df.at[i, 'signal'] = self.SIGNAL_BUY
-                            buy_signals += 1
-                        else:
-                            filtered_buy += 1
-                    else:
-                        filtered_buy += 1
-                else:
-                    # Without medians, accept all peaks
+        if has_crosses:
+            for i in range(len(df)):
+                # BUY signal from cross_buy
+                if df['cross_buy'].iloc[i] == 1:
                     df.at[i, 'signal'] = self.SIGNAL_BUY
                     buy_signals += 1
                     
-            # SELL signal at HIGH peak - must be BETWEEN the two ranges
-            elif df['peaks_max'].iloc[i] == 1:
-                if has_medians:
-                    bidclose = df['bidclose'].iloc[i]
-                    # Inner band (close-based, smaller %)
-                    median_close_hight_upper = df['median_close_hight_upper'].iloc[i]
-                    # Outer band (high-based, larger %)
-                    median_high_upper = df['median_high_upper'].iloc[i]
-                    
-                    if not pd.isna(bidclose) and not pd.isna(median_close_hight_upper) and not pd.isna(median_high_upper):
-                        # Peak must be BETWEEN the two bands: median_close_hight_upper <= price <= median_high_upper
-                        # Inner band (tighter) <= price <= Outer band (wider)
-                        if median_close_hight_upper <= bidclose <= median_high_upper:
-                            df.at[i, 'signal'] = self.SIGNAL_SELL
-                            sell_signals += 1
-                        else:
-                            filtered_sell += 1
-                    else:
-                        filtered_sell += 1
-                else:
-                    # Without medians, accept all peaks
+                # SELL signal from cross_sell
+                elif df['cross_sell'].iloc[i] == 1:
                     df.at[i, 'signal'] = self.SIGNAL_SELL
                     sell_signals += 1
-                
+        
         df['valid_signal'] = df['signal']
         
-        if has_medians:
-            self._log_message(f"Peak signals (median filtered): buy={buy_signals} sell={sell_signals} (filtered: {filtered_buy} buy, {filtered_sell} sell) instrument={self.instrument} timeframe={self.timeframe}")
-        else:
-            self._log_message(f"Peak signals: buy={buy_signals} sell={sell_signals} instrument={self.instrument} timeframe={self.timeframe}")
+        self._log_message(f"Signals from median crosses: buy={buy_signals} sell={sell_signals} instrument={self.instrument} timeframe={self.timeframe}")
         
         return df
 

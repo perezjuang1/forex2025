@@ -27,10 +27,16 @@ call "%BASE_DIR%env1\Scripts\python.exe" -m ensurepip --upgrade >> "%LOG_FILE%" 
 echo Running: env1\Scripts\python.exe -m pip install --upgrade pip setuptools wheel >> "%LOG_FILE%"
 call "%BASE_DIR%env1\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel >> "%LOG_FILE%" 2>&1
 
+:RESTART_LOOP
 echo Running: env1\Scripts\python.exe TradingSystem.py >> "%LOG_FILE%"
+echo [%date% %time%] Starting TradingSystem >> "%LOG_FILE%"
 call "%BASE_DIR%env1\Scripts\python.exe" "%BASE_DIR%TradingSystem.py" >> "%LOG_FILE%" 2>&1
 
-:: Fin
+echo [%date% %time%] TradingSystem stopped. Restarting in 5 seconds... >> "%LOG_FILE%"
+timeout /t 5 /nobreak
+goto RESTART_LOOP
+
+:: Fin (nunca se alcanza a menos que se cancele manualmente)
 echo [%date% %time%] Ejecución finalizada >> "%LOG_FILE%"
 echo ------------------------------------------------------------ >> "%LOG_FILE%"
 echo Logs guardados en "%LOG_FILE%"
