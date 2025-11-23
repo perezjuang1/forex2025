@@ -11,10 +11,10 @@ from datetime import datetime
 import threading
 import time
 
-class TradingVisualizer:
+class ChartViewer:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Trading Visualizer")
+        self.root.title("Chart Viewer")
         self.csv_files = self.get_available_csv_files()
         
         # Initialize visibility flags
@@ -749,10 +749,10 @@ class TradingVisualizer:
             # Force full view after initial load
             self.root.after(200, self.force_full_view)
 
-def run_single_visualizer():
-    """Run the single window visualizer"""
-    visualizer = TradingVisualizer()
-    visualizer.run()
+def run_chart_viewer():
+    """Run the chart viewer application"""
+    viewer = ChartViewer()
+    viewer.run()
 
 if __name__ == "__main__":
-    run_single_visualizer() 
+    run_chart_viewer() 

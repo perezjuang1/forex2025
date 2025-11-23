@@ -6,9 +6,9 @@ import numpy as np
 import traceback
 import threading
 import multiprocessing
-from TradingConfiguration import TradingConfig
+from config import TradingConfig
 
-class TradingSystem:
+class TradingEngine:
     def __init__(self, days, timeframe=None, instrument="EUR/USD"):
         if timeframe is None:
             timeframe = TradingConfig.get_timeframe()
@@ -66,11 +66,11 @@ class TradingSystem:
             print(traceback.format_exc())
 
 def run_trading_for_instrument(instrument):
-    """Run the trading system for a specific instrument"""
+    """Run the trading engine for a specific instrument"""
     try:
         print(f"[LOG] Starting trading for {instrument} - {dt.datetime.now()}")
-        trading = TradingSystem(days=7, instrument=instrument)
-        trading.start_trade_monitor()
+        engine = TradingEngine(days=7, instrument=instrument)
+        engine.start_trade_monitor()
     except Exception as e:
         print(f"Fatal error occurred for {instrument}. Restarting Trading session...")
         print(traceback.format_exc())
@@ -78,16 +78,16 @@ def run_trading_for_instrument(instrument):
         time.sleep(20)
 
 def run_visualizer_for_instrument(instrument):
-    """Run the visualizer for a specific instrument"""
+    """Run the chart viewer for a specific instrument"""
     try:
-        from TradingVisualizer import run_single_visualizer
-        run_single_visualizer()
+        from chart_viewer import run_chart_viewer
+        run_chart_viewer()
     except Exception as e:
         print(f"Error running visualizer: {str(e)}")
         print(traceback.format_exc())
 
 if __name__ == "__main__":
-    from TradingConfiguration import TradingConfig
+    from config import TradingConfig
     instruments = TradingConfig.get_instruments()
     
     print("Starting Trading and Plotting System...")
@@ -116,4 +116,5 @@ if __name__ == "__main__":
         if visualizer_process.is_alive():
             visualizer_process.terminate()
             visualizer_process.join()
-        print("All processes terminated.") 
+        print("All processes terminated.")
+

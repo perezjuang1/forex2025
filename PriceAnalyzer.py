@@ -6,7 +6,7 @@ import pytz
 import datetime as dt
 import logging
 import os
-from TradingConfiguration import TradingConfig
+from config import TradingConfig
 
 try:
     from FxcmConnection import RobotConnection
@@ -326,7 +326,7 @@ class PriceAnalyzer:
         try:
             # Initialize config
             if config is None:
-                from TradingConfiguration import TradingConfig
+                from config import TradingConfig
                 config = TradingConfig()
             
             signal_col = config.signal_col if hasattr(config, 'signal_col') else 'signal'
@@ -451,7 +451,7 @@ class PriceAnalyzer:
         try:
             # Initialize config
             if config is None:
-                from TradingConfiguration import TradingConfig
+                from config import TradingConfig
                 config = TradingConfig()
             
             signal_col = config.signal_col if hasattr(config, 'signal_col') else 'signal'
