@@ -435,5 +435,57 @@ class TradingConfig:
         cls._config = cls._load_config(config_path)
         cls._initialized = True
         print(f"[INFO] Configuration reloaded from '{config_path}'")
+    
+    # ============================================================================
+    # MARKET CONDITION PARAMETERS
+    # ============================================================================
+    
+    @classmethod
+    def get_market_filter_enabled(cls) -> bool:
+        """Get whether market condition filtering is enabled."""
+        cls._initialize()
+        return cls._get_config_value('MARKET_CONDITIONS', 'enable_market_filter', True, bool)
+    
+    @classmethod
+    def get_min_liquidity_percentile(cls) -> int:
+        """Get minimum liquidity percentile threshold."""
+        cls._initialize()
+        return cls._get_config_value('MARKET_CONDITIONS', 'min_liquidity_percentile', 30, int)
+    
+    @classmethod
+    def get_min_atr_percentile(cls) -> int:
+        """Get minimum ATR percentile threshold."""
+        cls._initialize()
+        return cls._get_config_value('MARKET_CONDITIONS', 'min_atr_percentile', 25, int)
+    
+    @classmethod
+    def get_min_movement_frequency(cls) -> float:
+        """Get minimum movement frequency threshold."""
+        cls._initialize()
+        return cls._get_config_value('MARKET_CONDITIONS', 'min_movement_frequency', 0.3, float)
+    
+    @classmethod
+    def get_min_range_pips(cls) -> float:
+        """Get minimum range in pips."""
+        cls._initialize()
+        return cls._get_config_value('MARKET_CONDITIONS', 'min_range_pips', 0.0002, float)
+    
+    @classmethod
+    def get_window_liquidity(cls) -> int:
+        """Get liquidity analysis window size."""
+        cls._initialize()
+        return cls._get_config_value('MARKET_CONDITIONS', 'window_liquidity', 20, int)
+    
+    @classmethod
+    def get_window_volatility(cls) -> int:
+        """Get volatility analysis window size."""
+        cls._initialize()
+        return cls._get_config_value('MARKET_CONDITIONS', 'window_volatility', 20, int)
+    
+    @classmethod
+    def get_window_movement(cls) -> int:
+        """Get movement frequency analysis window size."""
+        cls._initialize()
+        return cls._get_config_value('MARKET_CONDITIONS', 'window_movement', 10, int)
 
 

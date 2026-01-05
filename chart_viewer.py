@@ -17,14 +17,22 @@ class ChartViewer:
         self.root.title("Chart Viewer")
         self.csv_files = self.get_available_csv_files()
         
-        # Initialize visibility flags
+        # Initialize visibility flags - only indicators actually used in strategy
         self.visibility_flags = {
+            # Price and basic indicators
             'price': tk.BooleanVar(value=True),
-            'peaks_min': tk.BooleanVar(value=True),
-            'peaks_max': tk.BooleanVar(value=True),
+            'peaks_min': tk.BooleanVar(value=False),  # Used for signal generation but not critical to visualize
+            'peaks_max': tk.BooleanVar(value=False),  # Used for signal generation but not critical to visualize
             'signals': tk.BooleanVar(value=True),
-            'medians': tk.BooleanVar(value=True),
+            # Trend indicators (all used in strategy)
             'ema_200': tk.BooleanVar(value=True),
+            'ema_fast': tk.BooleanVar(value=True),
+            'ema_slow': tk.BooleanVar(value=True),
+            # Advanced indicators (all used in strategy)
+            'rsi': tk.BooleanVar(value=True),
+            'macd': tk.BooleanVar(value=True),
+            # Market conditions
+            'market_conditions': tk.BooleanVar(value=False),
         }
         
         # Initialize data attributes
@@ -34,8 +42,49 @@ class ChartViewer:
         # Initialize auto-update variables
         self.update_interval = 120  # 2 minutes in seconds
         self.auto_update_enabled = True
+        self.auto_scroll_enabled = True
         self.stop_update = False
         self.update_thread = None
+        self.loading_thread = None
+        self.is_loading = False
+        
+        # RSI independent window components
+        self.rsi_window = None
+        self.fig_rsi = None
+        self.ax_rsi = None
+        self.canvas_rsi = None
+        
+        # MACD independent window components
+        self.macd_window = None
+        self.fig_macd = None
+        self.ax_macd = None
+        self.canvas_macd = None
+        
+        # Market conditions independent window components (one for each indicator)
+        self.liquidity_window = None
+        self.fig_liquidity = None
+        self.ax_liquidity = None
+        self.canvas_liquidity = None
+        
+        self.volatility_window = None
+        self.fig_volatility = None
+        self.ax_volatility = None
+        self.canvas_volatility = None
+        
+        self.movement_window = None
+        self.fig_movement = None
+        self.ax_movement = None
+        self.canvas_movement = None
+        
+        self.spread_window = None
+        self.fig_spread = None
+        self.ax_spread = None
+        self.canvas_spread = None
+        
+        self.quality_window = None
+        self.fig_quality = None
+        self.ax_quality = None
+        self.canvas_quality = None
         
         self.setup_gui()
         
@@ -76,10 +125,24 @@ class ChartViewer:
         right_panel = ttk.Frame(main_frame)
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
-        # Create matplotlib figure
-        self.fig, self.ax = plt.subplots(figsize=(12, 8))
+        # Create matplotlib figure with organized subplots
+        # Layout: Price chart (main) - All indicators moved to independent windows
+        self.fig = plt.figure(figsize=(14, 8))
+        
+        # Only price chart now, all indicators in separate windows
+        self.ax = self.fig.add_subplot(1, 1, 1)  # Main price chart only
+        
         self.setup_plot()
         self.setup_lines()
+        
+        # Create independent windows after main GUI is set up
+        self.root.after(100, self.setup_rsi_window)
+        self.root.after(150, self.setup_macd_window)
+        self.root.after(200, self.setup_liquidity_window)
+        self.root.after(250, self.setup_volatility_window)
+        self.root.after(300, self.setup_movement_window)
+        self.root.after(350, self.setup_spread_window)
+        self.root.after(400, self.setup_quality_window)
         
         # Embed plot in tkinter
         self.canvas = FigureCanvasTkAgg(self.fig, right_panel)
@@ -152,42 +215,332 @@ class ChartViewer:
         self.lock_zoom_checkbox.pack(side=tk.RIGHT)
         
         # Instructions
-        instructions = ttk.Label(left_panel, text="Instructions:\n1. Select a CSV file from the list\n2. Use checkboxes to show/hide lines\n3. The plot will update automatically\n4. Use mouse to zoom and pan\n5. Check 'Lock zoom' to prevent auto-scroll\n6. Use toolbar buttons for zoom controls", 
+        instructions = ttk.Label(left_panel, text="Instructions:\n1. Select a CSV file from the list\n2. Use checkboxes to show/hide lines\n3. The plot will update automatically\n4. Use mouse to zoom and pan\n5. Check 'Lock zoom' to prevent auto-scroll\n6. Use toolbar buttons for zoom controls\n7. RSI, MACD and Market Conditions indicators are displayed in separate windows", 
                                font=('Arial', 9), justify=tk.LEFT)
         instructions.pack(pady=(10, 0))
     
-    def setup_visibility_controls(self, parent):
-        """Setup visibility checkboxes for plot lines"""
-        # Visibility controls frame
-        visibility_frame = ttk.LabelFrame(parent, text="Show/Hide Lines", padding=5)
-        visibility_frame.pack(pady=(10, 0), fill=tk.X)
+    def setup_rsi_window(self):
+        """Setup independent window for RSI plot"""
+        self.rsi_window = tk.Toplevel(self.root)
+        self.rsi_window.title("RSI (Relative Strength Index) - Independent Plot")
+        self.rsi_window.geometry("1000x400")
         
-        # Create checkboxes for each line type
-        checkbox_configs = [
-            ('price', 'Price Line'),
+        # Create matplotlib figure for RSI
+        self.fig_rsi = plt.figure(figsize=(10, 4))
+        self.fig_rsi.patch.set_facecolor('#1a1a1a')
+        
+        # Create subplot for RSI
+        self.ax_rsi = self.fig_rsi.add_subplot(1, 1, 1)
+        self.ax_rsi.set_ylabel('RSI', color='white', fontsize=10)
+        self.ax_rsi.grid(True, alpha=0.3, color='gray')
+        self.ax_rsi.tick_params(colors='white')
+        self.ax_rsi.set_facecolor('#1a1a1a')
+        self.ax_rsi.set_ylim(0, 100)
+        self.ax_rsi.set_xlabel('Time Index', color='white', fontsize=9)
+        self.ax_rsi.set_title("RSI (Relative Strength Index)", color='white', fontsize=12, pad=10)
+        self.ax_rsi.axhline(y=70, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Overbought (70)')
+        self.ax_rsi.axhline(y=30, color='green', linestyle='--', linewidth=1, alpha=0.5, label='Oversold (30)')
+        self.ax_rsi.axhline(y=50, color='gray', linestyle=':', linewidth=0.5, alpha=0.3, label='Neutral (50)')
+        self.ax_rsi.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', loc='upper right', fontsize=8)
+        
+        # Embed plot in tkinter
+        self.canvas_rsi = FigureCanvasTkAgg(self.fig_rsi, self.rsi_window)
+        self.canvas_rsi.draw()
+        self.canvas_rsi.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Enable matplotlib navigation tools for RSI window
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        self.toolbar_rsi = NavigationToolbar2Tk(self.canvas_rsi, self.rsi_window)
+        self.toolbar_rsi.update()
+        
+        # Create RSI line in the independent window
+        self.rsi_line, = self.ax_rsi.plot([], [], linestyle='-', color='#ffa500', label='RSI', linewidth=1.5, alpha=0.9)
+        
+        # Handle window close event
+        self.rsi_window.protocol("WM_DELETE_WINDOW", self.on_rsi_window_close)
+    
+    def setup_macd_window(self):
+        """Setup independent window for MACD plot"""
+        self.macd_window = tk.Toplevel(self.root)
+        self.macd_window.title("MACD (Moving Average Convergence Divergence) - Independent Plot")
+        self.macd_window.geometry("1000x500")
+        
+        # Create matplotlib figure for MACD
+        self.fig_macd = plt.figure(figsize=(10, 5))
+        self.fig_macd.patch.set_facecolor('#1a1a1a')
+        
+        # Create subplot for MACD
+        self.ax_macd = self.fig_macd.add_subplot(1, 1, 1)
+        self.ax_macd.set_ylabel('MACD', color='white', fontsize=10)
+        self.ax_macd.grid(True, alpha=0.3, color='gray')
+        self.ax_macd.tick_params(colors='white')
+        self.ax_macd.set_facecolor('#1a1a1a')
+        self.ax_macd.set_xlabel('Time Index', color='white', fontsize=9)
+        self.ax_macd.set_title("MACD (Moving Average Convergence Divergence)", color='white', fontsize=12, pad=10)
+        self.ax_macd.axhline(y=0, color='white', linestyle='-', linewidth=1, alpha=0.5)
+        
+        # Create MACD lines in the independent window
+        self.macd_line, = self.ax_macd.plot([], [], linestyle='-', color='#00ffff', label='MACD', linewidth=1.5, alpha=0.9)
+        self.macd_signal_line, = self.ax_macd.plot([], [], linestyle='-', color='#ff00ff', label='Signal', linewidth=1.5, alpha=0.9)
+        # MACD histogram will be created dynamically when data is available
+        self.macd_hist_line = None
+        
+        # Add legend
+        self.ax_macd.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', loc='upper right', fontsize=8)
+        
+        # Embed plot in tkinter
+        self.canvas_macd = FigureCanvasTkAgg(self.fig_macd, self.macd_window)
+        self.canvas_macd.draw()
+        self.canvas_macd.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Enable matplotlib navigation tools for MACD window
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        self.toolbar_macd = NavigationToolbar2Tk(self.canvas_macd, self.macd_window)
+        self.toolbar_macd.update()
+        
+        # Handle window close event
+        self.macd_window.protocol("WM_DELETE_WINDOW", self.on_macd_window_close)
+    
+    def setup_liquidity_window(self):
+        """Setup independent window for Liquidity plot"""
+        self.liquidity_window = tk.Toplevel(self.root)
+        self.liquidity_window.title("Liquidity Score - Independent Plot")
+        self.liquidity_window.geometry("1000x400")
+        
+        self.fig_liquidity = plt.figure(figsize=(10, 4))
+        self.fig_liquidity.patch.set_facecolor('#1a1a1a')
+        
+        self.ax_liquidity = self.fig_liquidity.add_subplot(1, 1, 1)
+        self.ax_liquidity.set_xlabel('Time Index', color='white', fontsize=10)
+        self.ax_liquidity.set_ylabel('Liquidity Score', color='white', fontsize=10)
+        self.ax_liquidity.grid(True, alpha=0.3, color='gray')
+        self.ax_liquidity.tick_params(colors='white')
+        self.ax_liquidity.set_facecolor('#1a1a1a')
+        self.ax_liquidity.set_ylim(0, 1)
+        self.ax_liquidity.set_title("Liquidity Score", color='white', fontsize=12, pad=10)
+        self.ax_liquidity.axhline(y=0.3, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Threshold (30%)')
+        
+        self.liquidity_line, = self.ax_liquidity.plot([], [], linestyle='-', color='#00ffff', label='Liquidity', linewidth=2, alpha=0.9)
+        self.ax_liquidity.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', loc='upper right', fontsize=9)
+        
+        self.canvas_liquidity = FigureCanvasTkAgg(self.fig_liquidity, self.liquidity_window)
+        self.canvas_liquidity.draw()
+        self.canvas_liquidity.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        self.toolbar_liquidity = NavigationToolbar2Tk(self.canvas_liquidity, self.liquidity_window)
+        self.toolbar_liquidity.update()
+        
+        self.liquidity_window.protocol("WM_DELETE_WINDOW", self.on_liquidity_window_close)
+    
+    def setup_volatility_window(self):
+        """Setup independent window for Volatility plot"""
+        self.volatility_window = tk.Toplevel(self.root)
+        self.volatility_window.title("Volatility Score - Independent Plot")
+        self.volatility_window.geometry("1000x400")
+        
+        self.fig_volatility = plt.figure(figsize=(10, 4))
+        self.fig_volatility.patch.set_facecolor('#1a1a1a')
+        
+        self.ax_volatility = self.fig_volatility.add_subplot(1, 1, 1)
+        self.ax_volatility.set_xlabel('Time Index', color='white', fontsize=10)
+        self.ax_volatility.set_ylabel('Volatility Score', color='white', fontsize=10)
+        self.ax_volatility.grid(True, alpha=0.3, color='gray')
+        self.ax_volatility.tick_params(colors='white')
+        self.ax_volatility.set_facecolor('#1a1a1a')
+        self.ax_volatility.set_ylim(0, 1)
+        self.ax_volatility.set_title("Volatility Score", color='white', fontsize=12, pad=10)
+        self.ax_volatility.axhline(y=0.25, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Threshold (25%)')
+        
+        self.volatility_line, = self.ax_volatility.plot([], [], linestyle='-', color='#ff00ff', label='Volatility', linewidth=2, alpha=0.9)
+        self.ax_volatility.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', loc='upper right', fontsize=9)
+        
+        self.canvas_volatility = FigureCanvasTkAgg(self.fig_volatility, self.volatility_window)
+        self.canvas_volatility.draw()
+        self.canvas_volatility.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        self.toolbar_volatility = NavigationToolbar2Tk(self.canvas_volatility, self.volatility_window)
+        self.toolbar_volatility.update()
+        
+        self.volatility_window.protocol("WM_DELETE_WINDOW", self.on_volatility_window_close)
+    
+    def setup_movement_window(self):
+        """Setup independent window for Movement Frequency plot"""
+        self.movement_window = tk.Toplevel(self.root)
+        self.movement_window.title("Movement Frequency - Independent Plot")
+        self.movement_window.geometry("1000x400")
+        
+        self.fig_movement = plt.figure(figsize=(10, 4))
+        self.fig_movement.patch.set_facecolor('#1a1a1a')
+        
+        self.ax_movement = self.fig_movement.add_subplot(1, 1, 1)
+        self.ax_movement.set_xlabel('Time Index', color='white', fontsize=10)
+        self.ax_movement.set_ylabel('Movement Frequency', color='white', fontsize=10)
+        self.ax_movement.grid(True, alpha=0.3, color='gray')
+        self.ax_movement.tick_params(colors='white')
+        self.ax_movement.set_facecolor('#1a1a1a')
+        self.ax_movement.set_ylim(0, 1)
+        self.ax_movement.set_title("Movement Frequency", color='white', fontsize=12, pad=10)
+        self.ax_movement.axhline(y=0.3, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Threshold (30%)')
+        
+        self.movement_line, = self.ax_movement.plot([], [], linestyle='-', color='#ffff00', label='Movement Freq', linewidth=2, alpha=0.9)
+        self.ax_movement.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', loc='upper right', fontsize=9)
+        
+        self.canvas_movement = FigureCanvasTkAgg(self.fig_movement, self.movement_window)
+        self.canvas_movement.draw()
+        self.canvas_movement.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        self.toolbar_movement = NavigationToolbar2Tk(self.canvas_movement, self.movement_window)
+        self.toolbar_movement.update()
+        
+        self.movement_window.protocol("WM_DELETE_WINDOW", self.on_movement_window_close)
+    
+    def setup_spread_window(self):
+        """Setup independent window for Spread Score plot"""
+        self.spread_window = tk.Toplevel(self.root)
+        self.spread_window.title("Spread Score - Independent Plot")
+        self.spread_window.geometry("1000x400")
+        
+        self.fig_spread = plt.figure(figsize=(10, 4))
+        self.fig_spread.patch.set_facecolor('#1a1a1a')
+        
+        self.ax_spread = self.fig_spread.add_subplot(1, 1, 1)
+        self.ax_spread.set_xlabel('Time Index', color='white', fontsize=10)
+        self.ax_spread.set_ylabel('Spread Score', color='white', fontsize=10)
+        self.ax_spread.grid(True, alpha=0.3, color='gray')
+        self.ax_spread.tick_params(colors='white')
+        self.ax_spread.set_facecolor('#1a1a1a')
+        self.ax_spread.set_ylim(0, 1)
+        self.ax_spread.set_title("Spread Score", color='white', fontsize=12, pad=10)
+        
+        self.spread_line, = self.ax_spread.plot([], [], linestyle='-', color='#00ff00', label='Spread', linewidth=2, alpha=0.9)
+        self.ax_spread.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', loc='upper right', fontsize=9)
+        
+        self.canvas_spread = FigureCanvasTkAgg(self.fig_spread, self.spread_window)
+        self.canvas_spread.draw()
+        self.canvas_spread.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        self.toolbar_spread = NavigationToolbar2Tk(self.canvas_spread, self.spread_window)
+        self.toolbar_spread.update()
+        
+        self.spread_window.protocol("WM_DELETE_WINDOW", self.on_spread_window_close)
+    
+    def setup_quality_window(self):
+        """Setup independent window for Quality Score plot"""
+        self.quality_window = tk.Toplevel(self.root)
+        self.quality_window.title("Market Quality Score - Independent Plot")
+        self.quality_window.geometry("1000x400")
+        
+        self.fig_quality = plt.figure(figsize=(10, 4))
+        self.fig_quality.patch.set_facecolor('#1a1a1a')
+        
+        self.ax_quality = self.fig_quality.add_subplot(1, 1, 1)
+        self.ax_quality.set_xlabel('Time Index', color='white', fontsize=10)
+        self.ax_quality.set_ylabel('Quality Score', color='white', fontsize=10)
+        self.ax_quality.grid(True, alpha=0.3, color='gray')
+        self.ax_quality.tick_params(colors='white')
+        self.ax_quality.set_facecolor('#1a1a1a')
+        self.ax_quality.set_ylim(0, 1)
+        self.ax_quality.set_title("Market Quality Score", color='white', fontsize=12, pad=10)
+        self.ax_quality.axhline(y=0.4, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Threshold (40%)')
+        
+        self.quality_line, = self.ax_quality.plot([], [], linestyle='-', color='#ffffff', label='Quality Score', linewidth=2, alpha=0.9)
+        self.ax_quality.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', loc='upper right', fontsize=9)
+        
+        self.canvas_quality = FigureCanvasTkAgg(self.fig_quality, self.quality_window)
+        self.canvas_quality.draw()
+        self.canvas_quality.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        self.toolbar_quality = NavigationToolbar2Tk(self.canvas_quality, self.quality_window)
+        self.toolbar_quality.update()
+        
+        self.quality_window.protocol("WM_DELETE_WINDOW", self.on_quality_window_close)
+    
+    def setup_visibility_controls(self, parent):
+        """Setup visibility checkboxes organized by category"""
+        
+        # ========== PRICE & BASIC INDICATORS ==========
+        price_frame = ttk.LabelFrame(parent, text="Price & Basic", padding=5)
+        price_frame.pack(pady=(10, 0), fill=tk.X)
+        
+        price_configs = [
+            ('price', 'Price'),
             ('peaks_min', 'Min Peaks'),
             ('peaks_max', 'Max Peaks'),
-            ('signals', 'Signals'),
-            ('medians', 'Medians'),
-            ('ema_200', 'EMA 200'),
+            ('signals', 'Trading Signals'),
         ]
         
-        # Create checkboxes in a grid layout
-        for i, (flag_name, label) in enumerate(checkbox_configs):
+        for i, (flag_name, label) in enumerate(price_configs):
             row = i // 2
             col = i % 2
-            
             checkbox = ttk.Checkbutton(
-                visibility_frame,
+                price_frame,
                 text=label,
                 variable=self.visibility_flags[flag_name],
                 command=self.update_plot_visibility
             )
             checkbox.grid(row=row, column=col, sticky='w', padx=5, pady=2)
         
-        # Add "Show All" and "Hide All" buttons
-        button_frame = ttk.Frame(visibility_frame)
-        button_frame.grid(row=len(checkbox_configs)//2 + 1, column=0, columnspan=2, pady=(10, 0))
+        # ========== TREND INDICATORS ==========
+        trend_frame = ttk.LabelFrame(parent, text="Trend Indicators", padding=5)
+        trend_frame.pack(pady=(10, 0), fill=tk.X)
+        
+        trend_configs = [
+            ('ema_200', 'EMA 200'),
+            ('ema_fast', 'EMA Fast (12)'),
+            ('ema_slow', 'EMA Slow (26)'),
+        ]
+        
+        for i, (flag_name, label) in enumerate(trend_configs):
+            row = i // 2
+            col = i % 2
+            checkbox = ttk.Checkbutton(
+                trend_frame,
+                text=label,
+                variable=self.visibility_flags[flag_name],
+                command=self.update_plot_visibility
+            )
+            checkbox.grid(row=row, column=col, sticky='w', padx=5, pady=2)
+        
+        # ========== ADVANCED INDICATORS ==========
+        advanced_frame = ttk.LabelFrame(parent, text="Advanced Indicators", padding=5)
+        advanced_frame.pack(pady=(10, 0), fill=tk.X)
+        
+        advanced_configs = [
+            ('rsi', 'RSI'),
+            ('macd', 'MACD'),
+        ]
+        
+        for i, (flag_name, label) in enumerate(advanced_configs):
+            row = i // 2
+            col = i % 2
+            checkbox = ttk.Checkbutton(
+                advanced_frame,
+                text=label,
+                variable=self.visibility_flags[flag_name],
+                command=self.update_plot_visibility
+            )
+            checkbox.grid(row=row, column=col, sticky='w', padx=5, pady=2)
+        
+        # ========== MARKET CONDITIONS ==========
+        market_frame = ttk.LabelFrame(parent, text="Market Conditions", padding=5)
+        market_frame.pack(pady=(10, 0), fill=tk.X)
+        
+        market_checkbox = ttk.Checkbutton(
+            market_frame,
+            text='Show Market Quality',
+            variable=self.visibility_flags['market_conditions'],
+            command=self.update_plot_visibility
+        )
+        market_checkbox.pack(anchor=tk.W, padx=5, pady=2)
+        
+        # ========== CONTROL BUTTONS ==========
+        button_frame = ttk.Frame(parent)
+        button_frame.pack(pady=(10, 0), fill=tk.X)
         
         show_all_btn = ttk.Button(button_frame, text="Show All", command=self.show_all_lines)
         show_all_btn.pack(side=tk.LEFT, padx=(0, 5))
@@ -211,7 +564,7 @@ class ChartViewer:
             ('total_peaks', 'Total Peaks:'),
             ('min_peaks', 'Min Peaks:'),
             ('max_peaks', 'Max Peaks:'),
-
+            ('good_conditions', 'Good Conditions:'),
         ]
         
         for i, (key, label) in enumerate(stats_configs):
@@ -238,57 +591,66 @@ class ChartViewer:
             total_max_peaks = df['peaks_max'].sum() if 'peaks_max' in df.columns else 0
             total_peaks = total_min_peaks + total_max_peaks
             
-            # Calculate flat zones statistics
-            
-            
-            # Calculate percentage of flat zones
-            total_rows = len(df)
-    
+            # Calculate market condition statistics
+            if 'is_good_condition' in df.columns:
+                good_conditions = df['is_good_condition'].sum() if 'is_good_condition' in df.columns else 0
+                total_rows = len(df)
+                good_percentage = (good_conditions / total_rows * 100) if total_rows > 0 else 0
+            else:
+                good_conditions = 0
+                good_percentage = 0
             
             # Update labels
             self.stats_labels['total_peaks'].config(text=str(total_peaks))
             self.stats_labels['min_peaks'].config(text=str(total_min_peaks))
             self.stats_labels['max_peaks'].config(text=str(total_max_peaks))
             
+            # Update market condition stats if available
+            if hasattr(self, 'stats_labels') and 'good_conditions' in self.stats_labels:
+                self.stats_labels['good_conditions'].config(text=f"{good_conditions} ({good_percentage:.1f}%)")
             
         except Exception as e:
             print(f"Error updating statistics: {e}")
     
     def setup_plot(self):
-        """Setup the basic plot configuration"""
+        """Setup the basic plot configuration for all subplots"""
         plt.style.use('dark_background')
-        self.ax.set_xlabel('Time Index', color='white')
-        self.ax.set_ylabel('Price', color='white')
+        
+        # Main price chart
+        self.ax.set_ylabel('Price', color='white', fontsize=10)
+        self.ax.set_xlabel('Time Index', color='white', fontsize=10)
         self.ax.grid(True, alpha=0.3, color='gray')
         self.ax.tick_params(colors='white')
-        self.fig.patch.set_facecolor('#1a1a1a')
         self.ax.set_facecolor('#1a1a1a')
+        self.ax.set_title('Price Chart with Indicators', color='white', fontsize=12, pad=10)
+        
+        # Figure background
+        self.fig.patch.set_facecolor('#1a1a1a')
         
     def setup_lines(self):
-        """Initialize plot lines - price, peaks, signals and medians"""
-        self.price_line, = self.ax.plot([], [], linestyle='-', color='#00ff00', label='Price', linewidth=1)
-        self.peaks_min_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#ff69b4', label='Min Peaks', markersize=6)
-        self.peaks_max_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#32cd32', label='Max Peaks', markersize=6)
-        self.buy_signals, = self.ax.plot([], [], linestyle='', marker='^', color='#00ff00', label='Buy Signal', markersize=8)
-        self.sell_signals, = self.ax.plot([], [], linestyle='', marker='v', color='#ff0000', label='Sell Signal', markersize=8)
+        """Initialize plot lines for all indicators"""
         
-        # Median lines
-        self.median_high_line, = self.ax.plot([], [], linestyle='--', color='#ffff00', label='Median High', linewidth=1, alpha=0.7)
-        self.median_low_line, = self.ax.plot([], [], linestyle='--', color='#ff8c00', label='Median Low', linewidth=1, alpha=0.7)
-        self.median_close_line, = self.ax.plot([], [], linestyle='--', color='#00ffff', label='Median Close', linewidth=1, alpha=0.7)
-        self.median_open_line, = self.ax.plot([], [], linestyle='--', color='#ff00ff', label='Median Open', linewidth=1, alpha=0.7)
+        # ========== MAIN PRICE CHART ==========
+        # Price line
+        self.price_line, = self.ax.plot([], [], linestyle='-', color='#00ff00', label='Price', linewidth=1.5)
         
-        # EMA 200 line
-        self.ema_200_line, = self.ax.plot([], [], linestyle='-', color='#ffa500', label='EMA 200', linewidth=2, alpha=0.8)
+        # Peaks (used in strategy but optional visualization)
+        self.peaks_min_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#ff69b4', label='Min Peaks', markersize=5, alpha=0.6)
+        self.peaks_max_inf, = self.ax.plot([], [], linestyle='', marker='o', color='#32cd32', label='Max Peaks', markersize=5, alpha=0.6)
         
-
+        # Trading signals (critical - shows actual trade entries)
+        self.buy_signals, = self.ax.plot([], [], linestyle='', marker='^', color='#00ff00', label='Buy Signal', markersize=12, markeredgewidth=2, markeredgecolor='white')
+        self.sell_signals, = self.ax.plot([], [], linestyle='', marker='v', color='#ff0000', label='Sell Signal', markersize=12, markeredgewidth=2, markeredgecolor='white')
         
-        # Distanced median zones (vertical bars)
-
+        # Trend indicators - EMA (all used in strategy)
+        self.ema_200_line, = self.ax.plot([], [], linestyle='-', color='#ffa500', label='EMA 200', linewidth=2.5, alpha=0.9)
+        self.ema_fast_line, = self.ax.plot([], [], linestyle='-', color='#00ffff', label='EMA Fast (12)', linewidth=1.5, alpha=0.8)
+        self.ema_slow_line, = self.ax.plot([], [], linestyle='-', color='#ff00ff', label='EMA Slow (26)', linewidth=1.5, alpha=0.8)
         
-        # Legend
+        # ========== LEGENDS ==========
+        # Main chart legend
         self.ax.legend(facecolor='#1a1a1a', edgecolor='white', labelcolor='white', 
-                      loc='upper left', fontsize=9)
+                      loc='upper left', fontsize=8, ncol=2)
         
     def on_file_select(self, event):
         """Handle file selection from listbox"""
@@ -296,23 +658,44 @@ class ChartViewer:
         if selection:
             selected_file = self.csv_files[selection[0]]
             self.load_and_plot_data(selected_file)
-            # Force full view after file change
-            self.root.after(100, self.force_full_view)
     
     def load_and_plot_data(self, filename):
-        """Load CSV data and update plot"""
+        """Load CSV data and update plot (non-blocking)"""
+        if self.is_loading:
+            return  # Already loading, skip
+        
+        # Start loading in background thread
+        self.is_loading = True
+        self.status_var.set(f"Loading {os.path.basename(filename)}...")
+        self.loading_thread = threading.Thread(target=self._load_data_thread, args=(filename,), daemon=True)
+        self.loading_thread.start()
+    
+    def _load_data_thread(self, filename):
+        """Load data in background thread"""
         try:
             # Check if file exists
             if not os.path.exists(filename):
-                self.status_var.set(f"Error: {filename} not found")
+                self.root.after(0, lambda: self.status_var.set(f"Error: {filename} not found"))
+                self.is_loading = False
                 return
             
-            # Load data
+            # Load data (this is the blocking operation)
             df = pd.read_csv(filename)
             
             if df.empty:
-                self.status_var.set(f"Error: {filename} is empty")
+                self.root.after(0, lambda: self.status_var.set(f"Error: {filename} is empty"))
+                self.is_loading = False
                 return
+            
+            # Convert numeric columns to proper types (only indicators used in strategy)
+            numeric_columns = ['liquidity_score', 'volatility_score', 'movement_frequency', 
+                              'spread_score', 'market_quality_score', 'bidclose', 'bidhigh', 
+                              'bidlow', 'bidopen', 'tickqty', 'rsi', 'macd', 'macd_signal', 
+                              'macd_hist', 'atr', 'ema_200', 'ema_fast', 'ema_slow',
+                              'peaks_min', 'peaks_max', 'signal']
+            for col in numeric_columns:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
             
             # Check if data has changed (for auto-updates)
             data_changed = False
@@ -327,6 +710,21 @@ class ChartViewer:
             else:
                 data_changed = True
             
+            # Update current data and plot from main thread
+            # Use a helper function to properly capture the DataFrame
+            def update_plot():
+                self._update_data_and_plot(df.copy(), filename, data_changed)
+            self.root.after(0, update_plot)
+            
+        except Exception as e:
+            self.root.after(0, lambda: self.status_var.set(f"Error loading {filename}: {str(e)}"))
+            import traceback
+            traceback.print_exc()
+            self.is_loading = False
+    
+    def _update_data_and_plot(self, df, filename, data_changed):
+        """Update data and plot from main thread"""
+        try:
             # Update current data
             self.current_data = df
             self.current_file = filename
@@ -334,16 +732,21 @@ class ChartViewer:
             # Update plot
             self.update_plot_data()
             
+            # Force full view after update
+            self.force_full_view()
+            
             # Update status
             if data_changed:
-                self.status_var.set(f"Updated {filename} - {len(df)} rows at {datetime.now().strftime('%H:%M:%S')}")
+                self.status_var.set(f"Updated {os.path.basename(filename)} - {len(df)} rows at {datetime.now().strftime('%H:%M:%S')}")
             else:
-                self.status_var.set(f"No changes in {filename} - {len(df)} rows")
+                self.status_var.set(f"No changes in {os.path.basename(filename)} - {len(df)} rows")
             
         except Exception as e:
-            self.status_var.set(f"Error loading {filename}: {str(e)}")
+            self.status_var.set(f"Error updating plot: {str(e)}")
             import traceback
             traceback.print_exc()
+        finally:
+            self.is_loading = False
     
     def update_plot_data(self):
         """Update the plot with current data"""
@@ -427,46 +830,28 @@ class ChartViewer:
         else:
             self.peaks_max_inf.set_visible(False)
             
-        # Update medians
-        if self.get_line_visibility('medians'):
-            x_data = range(len(df))
-            
-            if 'median_high' in df.columns:
-                self.median_high_line.set_data(x_data, df['median_high'])
-                self.median_high_line.set_visible(True)
-            else:
-                self.median_high_line.set_visible(False)
-                
-            if 'median_low' in df.columns:
-                self.median_low_line.set_data(x_data, df['median_low'])
-                self.median_low_line.set_visible(True)
-            else:
-                self.median_low_line.set_visible(False)
-                
-            if 'median_close' in df.columns:
-                self.median_close_line.set_data(x_data, df['median_close'])
-                self.median_close_line.set_visible(True)
-            else:
-                self.median_close_line.set_visible(False)
-                
-            if 'median_open' in df.columns:
-                self.median_open_line.set_data(x_data, df['median_open'])
-                self.median_open_line.set_visible(True)
-            else:
-                self.median_open_line.set_visible(False)
-        else:
-            self.median_high_line.set_visible(False)
-            self.median_low_line.set_visible(False)
-            self.median_close_line.set_visible(False)
-            self.median_open_line.set_visible(False)
-            
-        # Update EMA 200
+        # Update EMA indicators
+        x_data = list(range(len(df)))
         if 'ema_200' in df.columns and self.get_line_visibility('ema_200'):
-            x_data = range(len(df))
-            self.ema_200_line.set_data(x_data, df['ema_200'])
+            ema_200_data = df['ema_200'].ffill().fillna(df['bidclose']).tolist()
+            self.ema_200_line.set_data(x_data, ema_200_data)
             self.ema_200_line.set_visible(True)
         else:
             self.ema_200_line.set_visible(False)
+        
+        if 'ema_fast' in df.columns and self.get_line_visibility('ema_fast'):
+            ema_fast_data = df['ema_fast'].ffill().fillna(df['bidclose']).tolist()
+            self.ema_fast_line.set_data(x_data, ema_fast_data)
+            self.ema_fast_line.set_visible(True)
+        else:
+            self.ema_fast_line.set_visible(False)
+        
+        if 'ema_slow' in df.columns and self.get_line_visibility('ema_slow'):
+            ema_slow_data = df['ema_slow'].ffill().fillna(df['bidclose']).tolist()
+            self.ema_slow_line.set_data(x_data, ema_slow_data)
+            self.ema_slow_line.set_visible(True)
+        else:
+            self.ema_slow_line.set_visible(False)
             
         # Update signals
         if 'signal' in df.columns and self.get_line_visibility('signals'):
@@ -523,17 +908,134 @@ class ChartViewer:
                 # If not zoomed, show full view
                 self.ax.set_xlim(0, len(df))
                 self.ax.set_ylim(price_min - margin, price_max + margin)
+            
+            # Sync all subplot x-axes with main chart (will be done later after all updates)
         else:
             # No data available
             self.ax.set_xlim(0, 1)
             self.ax.set_ylim(0, 1)
         
+        # Update RSI in independent window
+        if 'rsi' in df.columns and self.get_line_visibility('rsi') and self.ax_rsi is not None and hasattr(self, 'rsi_line'):
+            rsi_data = df['rsi'].fillna(50).tolist()
+            self.rsi_line.set_data(x_data, rsi_data)
+            self.rsi_line.set_visible(True)
+            # Update RSI plot limits
+            self.ax_rsi.set_xlim(0, len(df))
+            self.ax_rsi.set_ylim(0, 100)
+            # Update RSI title with filename
+            filename = os.path.basename(self.current_file) if self.current_file else "No file"
+            self.ax_rsi.set_title(f"RSI (Relative Strength Index) - {filename}", color='white', fontsize=12, pad=10)
+            # Force refresh of RSI plot
+            if self.canvas_rsi is not None:
+                self.canvas_rsi.draw_idle()
+        elif self.ax_rsi is not None and hasattr(self, 'rsi_line'):
+            self.rsi_line.set_visible(False)
+            if self.canvas_rsi is not None:
+                self.canvas_rsi.draw_idle()
+        
+        # Update MACD in independent window
+        if 'macd' in df.columns and self.get_line_visibility('macd') and self.ax_macd is not None and hasattr(self, 'macd_line'):
+            macd_data = df['macd'].fillna(0).tolist()
+            macd_signal_data = df['macd_signal'].fillna(0).tolist() if 'macd_signal' in df.columns else [0] * len(df)
+            macd_hist_data = df['macd_hist'].fillna(0).tolist() if 'macd_hist' in df.columns else [0] * len(df)
+            
+            self.macd_line.set_data(x_data, macd_data)
+            self.macd_line.set_visible(True)
+            
+            if 'macd_signal' in df.columns:
+                self.macd_signal_line.set_data(x_data, macd_signal_data)
+                self.macd_signal_line.set_visible(True)
+            else:
+                self.macd_signal_line.set_visible(False)
+            
+            # Update histogram (bar chart)
+            if self.macd_hist_line is not None:
+                try:
+                    self.macd_hist_line.remove()
+                except:
+                    pass
+            
+            # Create new histogram bars
+            colors = ['green' if h >= 0 else 'red' for h in macd_hist_data]
+            self.macd_hist_line = self.ax_macd.bar(x_data, macd_hist_data, width=0.8, color=colors, alpha=0.6)
+            
+            # Update MACD plot limits
+            if len(macd_data) > 0:
+                macd_min = min(macd_data + macd_signal_data + macd_hist_data)
+                macd_max = max(macd_data + macd_signal_data + macd_hist_data)
+                margin = (macd_max - macd_min) * 0.1 if macd_max != macd_min else 0.1
+                self.ax_macd.set_xlim(0, len(df))
+                self.ax_macd.set_ylim(macd_min - margin, macd_max + margin)
+            
+            # Update MACD title with filename
+            filename = os.path.basename(self.current_file) if self.current_file else "No file"
+            self.ax_macd.set_title(f"MACD (Moving Average Convergence Divergence) - {filename}", color='white', fontsize=12, pad=10)
+            
+            # Force refresh of MACD plot
+            if self.canvas_macd is not None:
+                self.canvas_macd.draw_idle()
+        elif self.ax_macd is not None and hasattr(self, 'macd_line'):
+            self.macd_line.set_visible(False)
+            self.macd_signal_line.set_visible(False)
+            if self.macd_hist_line is not None:
+                try:
+                    self.macd_hist_line.remove()
+                    self.macd_hist_line = None
+                except:
+                    pass
+            if self.canvas_macd is not None:
+                self.canvas_macd.draw_idle()
+        
+        # Sync window x-axes with main chart (RSI, MACD and Market Conditions windows sync independently above)
+        if len(df) > 0:
+            xlim = self.ax.get_xlim()
+            # Sync RSI window if it exists
+            if self.ax_rsi is not None:
+                self.ax_rsi.set_xlim(xlim)
+                if self.canvas_rsi is not None:
+                    self.canvas_rsi.draw()
+            # Sync MACD window if it exists
+            if self.ax_macd is not None:
+                self.ax_macd.set_xlim(xlim)
+                if self.canvas_macd is not None:
+                    self.canvas_macd.draw()
+            # Sync Market Conditions windows if they exist
+            if self.ax_liquidity is not None:
+                self.ax_liquidity.set_xlim(xlim)
+                if self.canvas_liquidity is not None:
+                    self.canvas_liquidity.draw()
+            if self.ax_volatility is not None:
+                self.ax_volatility.set_xlim(xlim)
+                if self.canvas_volatility is not None:
+                    self.canvas_volatility.draw()
+            if self.ax_movement is not None:
+                self.ax_movement.set_xlim(xlim)
+                if self.canvas_movement is not None:
+                    self.canvas_movement.draw()
+            if self.ax_spread is not None:
+                self.ax_spread.set_xlim(xlim)
+                if self.canvas_spread is not None:
+                    self.canvas_spread.draw()
+            if self.ax_quality is not None:
+                self.ax_quality.set_xlim(xlim)
+                if self.canvas_quality is not None:
+                    self.canvas_quality.draw()
+        
         # Force refresh of the plot
         self.ax.figure.canvas.draw_idle()
         
-        # Update title
-        self.ax.set_title(f"{self.current_file} - {len(df)} candles", color='white', fontsize=12)
+        # Update statistics
+        self.update_statistics(df)
         
+        # Update titles
+        filename = os.path.basename(self.current_file) if self.current_file else "No file"
+        self.ax.set_title(f"{filename} - {len(df)} candles", color='white', fontsize=12)
+        # RSI, MACD and Market Conditions titles updated in their respective update sections above
+        
+        # Update market condition indicators in independent windows
+        if self.get_line_visibility('market_conditions'):
+            self.update_market_condition_plots(df)
         
         # Redraw canvas
         self.canvas.draw()
@@ -611,26 +1113,43 @@ class ChartViewer:
     def update_plot_visibility(self):
         """Update plot visibility based on checkbox states"""
         try:
-            if self.current_data is not None:
+            if self.current_data is not None and hasattr(self, 'root') and self.root is not None:
                 self.update_plot_data()
-        except Exception as e:
-            print(f"Error updating plot visibility: {e}")
+        except (AttributeError, tk.TclError, Exception) as e:
+            # Window was destroyed or other error, ignore
+            pass
     
     def show_all_lines(self):
         """Show all plot lines"""
-        for flag in self.visibility_flags.values():
-            flag.set(True)
-        self.update_plot_visibility()
+        try:
+            for flag in self.visibility_flags.values():
+                flag.set(True)
+            self.update_plot_visibility()
+        except (AttributeError, tk.TclError):
+            # Window was destroyed, ignore
+            pass
     
     def hide_all_lines(self):
         """Hide all plot lines"""
-        for flag in self.visibility_flags.values():
-            flag.set(False)
-        self.update_plot_visibility()
+        try:
+            for flag in self.visibility_flags.values():
+                flag.set(False)
+            self.update_plot_visibility()
+        except (AttributeError, tk.TclError):
+            # Window was destroyed, ignore
+            pass
     
     def get_line_visibility(self, line_name):
         """Get visibility state for a specific line"""
-        return self.visibility_flags.get(line_name, tk.BooleanVar(value=True)).get()
+        try:
+            if line_name in self.visibility_flags:
+                return self.visibility_flags[line_name].get()
+            else:
+                # Default to True if flag doesn't exist
+                return True
+        except (AttributeError, tk.TclError):
+            # Window was destroyed or tkinter is not available, default to True
+            return True
     
     def start_auto_update(self):
         """Start the auto-update thread"""
@@ -652,11 +1171,10 @@ class ChartViewer:
     
     def _safe_update_data(self):
         """Safely update data from the main thread"""
-        if self.current_file and os.path.exists(self.current_file):
+        if self.current_file and os.path.exists(self.current_file) and not self.is_loading:
             try:
-                # Reload and update the current file
+                # Reload and update the current file (non-blocking)
                 self.load_and_plot_data(self.current_file)
-                self.status_var.set(f"Auto-updated {self.current_file} at {datetime.now().strftime('%H:%M:%S')}")
             except Exception as e:
                 self.status_var.set(f"Auto-update error: {str(e)}")
     
@@ -700,6 +1218,169 @@ class ChartViewer:
         else:
             self.status_var.set("No file selected for update")
     
+    def update_market_condition_plots(self, df):
+        """Update all market condition plots in independent windows"""
+        if df is None or df.empty:
+            return
+        
+        x_data = np.arange(len(df))
+        filename = os.path.basename(self.current_file) if self.current_file else "No file"
+        
+        # Update Liquidity window
+        if self.ax_liquidity is not None and hasattr(self, 'liquidity_line'):
+            try:
+                if 'liquidity_score' in df.columns:
+                    liquidity_data = df['liquidity_score'].fillna(0.5).replace([np.inf, -np.inf], 0.5).values
+                    self.liquidity_line.set_data(x_data, liquidity_data)
+                    self.liquidity_line.set_visible(True)
+                    
+                    valid_values = [v for v in liquidity_data if not np.isnan(v) and np.isfinite(v)]
+                    if valid_values:
+                        y_min = min(valid_values)
+                        y_max = max(valid_values)
+                        if y_max == y_min:
+                            center = y_min
+                            y_min = max(0, center - 0.1)
+                            y_max = min(1, center + 0.1)
+                        else:
+                            margin = (y_max - y_min) * 0.1
+                            y_min = max(0, y_min - margin)
+                            y_max = min(1, y_max + margin)
+                    else:
+                        y_min, y_max = 0, 1
+                    
+                    self.ax_liquidity.set_xlim(0, max(len(df) - 1, 1))
+                    self.ax_liquidity.set_ylim(y_min, y_max)
+                    self.ax_liquidity.set_title(f"Liquidity Score - {filename}", color='white', fontsize=12, pad=10)
+                    if self.canvas_liquidity is not None:
+                        self.canvas_liquidity.draw()
+            except Exception as e:
+                print(f"Error updating liquidity plot: {e}")
+        
+        # Update Volatility window
+        if self.ax_volatility is not None and hasattr(self, 'volatility_line'):
+            try:
+                if 'volatility_score' in df.columns:
+                    volatility_data = df['volatility_score'].fillna(0.5).replace([np.inf, -np.inf], 0.5).values
+                    self.volatility_line.set_data(x_data, volatility_data)
+                    self.volatility_line.set_visible(True)
+                    
+                    valid_values = [v for v in volatility_data if not np.isnan(v) and np.isfinite(v)]
+                    if valid_values:
+                        y_min = min(valid_values)
+                        y_max = max(valid_values)
+                        if y_max == y_min:
+                            center = y_min
+                            y_min = max(0, center - 0.1)
+                            y_max = min(1, center + 0.1)
+                        else:
+                            margin = (y_max - y_min) * 0.1
+                            y_min = max(0, y_min - margin)
+                            y_max = min(1, y_max + margin)
+                    else:
+                        y_min, y_max = 0, 1
+                    
+                    self.ax_volatility.set_xlim(0, max(len(df) - 1, 1))
+                    self.ax_volatility.set_ylim(y_min, y_max)
+                    self.ax_volatility.set_title(f"Volatility Score - {filename}", color='white', fontsize=12, pad=10)
+                    if self.canvas_volatility is not None:
+                        self.canvas_volatility.draw()
+            except Exception as e:
+                print(f"Error updating volatility plot: {e}")
+        
+        # Update Movement Frequency window
+        if self.ax_movement is not None and hasattr(self, 'movement_line'):
+            try:
+                if 'movement_frequency' in df.columns:
+                    movement_data = df['movement_frequency'].fillna(0.5).replace([np.inf, -np.inf], 0.5).values
+                    self.movement_line.set_data(x_data, movement_data)
+                    self.movement_line.set_visible(True)
+                    
+                    valid_values = [v for v in movement_data if not np.isnan(v) and np.isfinite(v)]
+                    if valid_values:
+                        y_min = min(valid_values)
+                        y_max = max(valid_values)
+                        if y_max == y_min:
+                            center = y_min
+                            y_min = max(0, center - 0.1)
+                            y_max = min(1, center + 0.1)
+                        else:
+                            margin = (y_max - y_min) * 0.1
+                            y_min = max(0, y_min - margin)
+                            y_max = min(1, y_max + margin)
+                    else:
+                        y_min, y_max = 0, 1
+                    
+                    self.ax_movement.set_xlim(0, max(len(df) - 1, 1))
+                    self.ax_movement.set_ylim(y_min, y_max)
+                    self.ax_movement.set_title(f"Movement Frequency - {filename}", color='white', fontsize=12, pad=10)
+                    if self.canvas_movement is not None:
+                        self.canvas_movement.draw()
+            except Exception as e:
+                print(f"Error updating movement plot: {e}")
+        
+        # Update Spread window
+        if self.ax_spread is not None and hasattr(self, 'spread_line'):
+            try:
+                if 'spread_score' in df.columns:
+                    spread_data = df['spread_score'].fillna(0.5).replace([np.inf, -np.inf], 0.5).values
+                    self.spread_line.set_data(x_data, spread_data)
+                    self.spread_line.set_visible(True)
+                    
+                    valid_values = [v for v in spread_data if not np.isnan(v) and np.isfinite(v)]
+                    if valid_values:
+                        y_min = min(valid_values)
+                        y_max = max(valid_values)
+                        if y_max == y_min:
+                            center = y_min
+                            y_min = max(0, center - 0.1)
+                            y_max = min(1, center + 0.1)
+                        else:
+                            margin = (y_max - y_min) * 0.1
+                            y_min = max(0, y_min - margin)
+                            y_max = min(1, y_max + margin)
+                    else:
+                        y_min, y_max = 0, 1
+                    
+                    self.ax_spread.set_xlim(0, max(len(df) - 1, 1))
+                    self.ax_spread.set_ylim(y_min, y_max)
+                    self.ax_spread.set_title(f"Spread Score - {filename}", color='white', fontsize=12, pad=10)
+                    if self.canvas_spread is not None:
+                        self.canvas_spread.draw()
+            except Exception as e:
+                print(f"Error updating spread plot: {e}")
+        
+        # Update Quality Score window
+        if self.ax_quality is not None and hasattr(self, 'quality_line'):
+            try:
+                if 'market_quality_score' in df.columns:
+                    quality_data = df['market_quality_score'].fillna(0.5).replace([np.inf, -np.inf], 0.5).values
+                    self.quality_line.set_data(x_data, quality_data)
+                    self.quality_line.set_visible(True)
+                    
+                    valid_values = [v for v in quality_data if not np.isnan(v) and np.isfinite(v)]
+                    if valid_values:
+                        y_min = min(valid_values)
+                        y_max = max(valid_values)
+                        if y_max == y_min:
+                            center = y_min
+                            y_min = max(0, center - 0.1)
+                            y_max = min(1, center + 0.1)
+                        else:
+                            margin = (y_max - y_min) * 0.1
+                            y_min = max(0, y_min - margin)
+                            y_max = min(1, y_max + margin)
+                    else:
+                        y_min, y_max = 0, 1
+                    
+                    self.ax_quality.set_xlim(0, max(len(df) - 1, 1))
+                    self.ax_quality.set_ylim(y_min, y_max)
+                    self.ax_quality.set_title(f"Market Quality Score - {filename}", color='white', fontsize=12, pad=10)
+                    if self.canvas_quality is not None:
+                        self.canvas_quality.draw()
+            except Exception as e:
+                print(f"Error updating quality plot: {e}")
+    
     def force_full_view(self):
         """Force a full view of the data to ensure price lines are visible"""
         if self.current_data is not None and not self.current_data.empty:
@@ -719,11 +1400,126 @@ class ChartViewer:
                 margin = max((price_max - price_min) * 0.05, 1e-6)  # 5% margin
                 self.ax.set_ylim(price_min - margin, price_max + margin)
             
+            # Sync RSI window if it exists
+            if self.ax_rsi is not None:
+                self.ax_rsi.set_xlim(0, len(df))
+                if self.canvas_rsi is not None:
+                    self.canvas_rsi.draw()
+            
+            # Sync MACD window if it exists
+            if self.ax_macd is not None:
+                self.ax_macd.set_xlim(0, len(df))
+                if self.canvas_macd is not None:
+                    self.canvas_macd.draw()
+            
+            # Sync Market Conditions windows if they exist
+            if self.ax_liquidity is not None:
+                self.ax_liquidity.set_xlim(0, len(df))
+                if self.canvas_liquidity is not None:
+                    self.canvas_liquidity.draw()
+            if self.ax_volatility is not None:
+                self.ax_volatility.set_xlim(0, len(df))
+                if self.canvas_volatility is not None:
+                    self.canvas_volatility.draw()
+            if self.ax_movement is not None:
+                self.ax_movement.set_xlim(0, len(df))
+                if self.canvas_movement is not None:
+                    self.canvas_movement.draw()
+            if self.ax_spread is not None:
+                self.ax_spread.set_xlim(0, len(df))
+                if self.canvas_spread is not None:
+                    self.canvas_spread.draw()
+            if self.ax_quality is not None:
+                self.ax_quality.set_xlim(0, len(df))
+                if self.canvas_quality is not None:
+                    self.canvas_quality.draw()
+            
             # Force canvas redraw
             self.canvas.draw()
             self.status_var.set(f"Forced full view - {len(df)} candles")
         else:
             self.status_var.set("No data available for full view")
+    
+    def on_rsi_window_close(self):
+        """Handle RSI window close event"""
+        if self.rsi_window is not None:
+            self.rsi_window.destroy()
+        self.rsi_window = None
+        self.fig_rsi = None
+        self.ax_rsi = None
+        self.canvas_rsi = None
+        if hasattr(self, 'rsi_line'):
+            del self.rsi_line
+    
+    def on_macd_window_close(self):
+        """Handle MACD window close event"""
+        if self.macd_window is not None:
+            self.macd_window.destroy()
+        self.macd_window = None
+        self.fig_macd = None
+        self.ax_macd = None
+        self.canvas_macd = None
+        if hasattr(self, 'macd_line'):
+            del self.macd_line
+        if hasattr(self, 'macd_signal_line'):
+            del self.macd_signal_line
+        if hasattr(self, 'macd_hist_line'):
+            self.macd_hist_line = None
+    
+    def on_liquidity_window_close(self):
+        """Handle Liquidity window close event"""
+        if self.liquidity_window is not None:
+            self.liquidity_window.destroy()
+        self.liquidity_window = None
+        self.fig_liquidity = None
+        self.ax_liquidity = None
+        self.canvas_liquidity = None
+        if hasattr(self, 'liquidity_line'):
+            del self.liquidity_line
+    
+    def on_volatility_window_close(self):
+        """Handle Volatility window close event"""
+        if self.volatility_window is not None:
+            self.volatility_window.destroy()
+        self.volatility_window = None
+        self.fig_volatility = None
+        self.ax_volatility = None
+        self.canvas_volatility = None
+        if hasattr(self, 'volatility_line'):
+            del self.volatility_line
+    
+    def on_movement_window_close(self):
+        """Handle Movement Frequency window close event"""
+        if self.movement_window is not None:
+            self.movement_window.destroy()
+        self.movement_window = None
+        self.fig_movement = None
+        self.ax_movement = None
+        self.canvas_movement = None
+        if hasattr(self, 'movement_line'):
+            del self.movement_line
+    
+    def on_spread_window_close(self):
+        """Handle Spread window close event"""
+        if self.spread_window is not None:
+            self.spread_window.destroy()
+        self.spread_window = None
+        self.fig_spread = None
+        self.ax_spread = None
+        self.canvas_spread = None
+        if hasattr(self, 'spread_line'):
+            del self.spread_line
+    
+    def on_quality_window_close(self):
+        """Handle Quality Score window close event"""
+        if self.quality_window is not None:
+            self.quality_window.destroy()
+        self.quality_window = None
+        self.fig_quality = None
+        self.ax_quality = None
+        self.canvas_quality = None
+        if hasattr(self, 'quality_line'):
+            del self.quality_line
     
     
     def run(self):
@@ -746,8 +1542,6 @@ class ChartViewer:
         if self.csv_files:
             self.listbox.selection_set(0)
             self.load_and_plot_data(self.csv_files[0])
-            # Force full view after initial load
-            self.root.after(200, self.force_full_view)
 
 def run_chart_viewer():
     """Run the chart viewer application"""
